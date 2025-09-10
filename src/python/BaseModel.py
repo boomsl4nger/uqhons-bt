@@ -60,7 +60,7 @@ class BaseBradleyTerry():
             return
         
         I = self.n_teams
-        self.params[1:I] = self.params[1:I] - np.min(self.params[1:I])
+        self.params[0:I] = self.params[0:I] - np.min(self.params[0:I])
     
     def get_teams(self):
         return self.teams
