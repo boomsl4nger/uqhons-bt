@@ -5,6 +5,16 @@ from pandas import DataFrame
 from BaseModel import BaseBradleyTerry
 
 class VANBT(BaseBradleyTerry):
+    """Class for a 'vanilla' (VAN) Bradley-Terry model. This is the original form of the model as proposed
+    by Bradley & Terry (1952). The term 'vanilla' follows from Jones (2021, unpublished) to describe
+    this simplest BT model formulation.
+
+    The parameters are the team strengths `theta_i` on the log-scale for each team `i=1, ..., I`.
+
+    TODO define a nice and small outline for these class descriptions.
+    TODO docstrings for the _set_data, get_n_params, and odds/prob methods, since these are 
+    model-specific.
+    """
     def _log_likelihood(self, params: ndarray) -> float:
         loglik = 0
         for i in range(self.n_teams):
@@ -51,26 +61,21 @@ class VANBT(BaseBradleyTerry):
     def get_n_params(self):
         return self.n_teams
 
-    def get_ranking(self):
-        assert self.params is not None
-
-        results = {
-            "Team": self.teams,
-            "Ability": self.params
-        }
-
-        return DataFrame(results).sort_values(by="Ability", ascending=False)
-    
-    def get_odds(self, i, j):
+    def get_odds(self, i: int, j: int):
         return self.params[i] - self.params[j]
 
-    def get_prob(self, i, j):
+    def get_prob(self, i: int, j: int):
         exp_i = exp(self.params[i])
         exp_j = exp(self.params[j])
         return exp_i / (exp_i + exp_j)
 
 
 class CHABT(BaseBradleyTerry):
+    """Class for the common home-ground advantage (CHA) Bradley-Terry model. The model supposes 
+    there is some constant home advantage term.
+
+    The parameter vector contains the team strengths, and the common HFA parameter at the end.
+    """
     def _log_likelihood(self, params: ndarray) -> float:
         loglik = 0
         for i in range(self.n_teams):
@@ -134,16 +139,6 @@ class CHABT(BaseBradleyTerry):
     
     def get_n_params(self):
         return self.n_teams + 1
-
-    def get_ranking(self):
-        assert self.params is not None
-
-        results = {
-            "Team": self.teams,
-            "Ability": self.params[0:self.n_teams]
-        }
-
-        return DataFrame(results).sort_values(by="Ability", ascending=False)
     
     def get_odds(self, i, j, venue = "home"):
         return self.params[i] - self.params[j]
