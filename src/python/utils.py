@@ -23,6 +23,9 @@ def make_win_matrix(df: DataFrame) -> DataFrame:
 
     return wins
 
+def make_time_blocked_win_matrix(df: DataFrame) -> dict[str: DataFrame]:
+    pass
+
 def make_venue_win_matrices(df: DataFrame) -> dict:
     teams = np.unique(df.iloc[:, 0:1].values.ravel())
     wins = {
@@ -57,6 +60,9 @@ def make_venue_win_matrices(df: DataFrame) -> dict:
             
     return wins
 
+def make_time_blocked_venue_win_matrices(df: DataFrame) -> dict[str: dict[str: DataFrame]]:
+    pass
+
 def matrix_to_bin_counts(mat):
     pass
 
@@ -75,9 +81,10 @@ def make_victory_totals(data: DataFrame, home: bool = False) -> DataFrame:
     return DataFrame(result).reset_index(drop=True)
 
 def check_model_grad(model: BaseBradleyTerry) -> float:
-    x0 = np.zeros(model.nparams) + 1 / model.nparams
-    error = check_grad(model._log_likelihood, model._score, x0)
-    return error
+    # x0 = np.zeros(model.n_params) + 1 / model.n_params
+    rng = np.random.default_rng()
+    x0 = rng.random(model.n_params) * 10
+    return check_grad(model._log_likelihood, model._score, x0)
 
 
 
