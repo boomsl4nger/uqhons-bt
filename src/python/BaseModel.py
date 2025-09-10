@@ -1,79 +1,97 @@
 import numpy as np
+from numpy import ndarray
 from pandas import DataFrame
 from scipy.optimize import minimize
 
 # TODO make abstract base class
 class BaseBradleyTerry():
-    def __init__(self, data: DataFrame):
-        # TODO write init overloads for non-pandas use cases
-        # TODO change asserts to nicer input validation
-        # TODO look at fields and methods provided by scikit learn models for inspiration
-        # TODO refactor data input to be with `fit` method, not init
-        assert type(data) == DataFrame and data.shape[0] == data.shape[1]
-
-        self.data = data
-        self.teams = data.columns
-        self.nteams = len(data.columns)
+    def __init__(self):
+        self.data = None
+        self.n_teams = None
+        self.teams = None
+        self.n_params = None
         self.params = None
-        self.nparams = None
-        self.fit_summary = None # TODO is this needed?
+        self._fit_summary = None
 
-    def _init_params(self):
+    def _log_likelihood(self, params: ndarray) -> float:
         raise NotImplementedError()
 
-    def _log_likelihood(self, params: list) -> float:
+    def _score(self, params: ndarray) -> ndarray:
         raise NotImplementedError()
 
-    def _score(self, params: list) -> list:
+    def _hessian(self, params: ndarray) -> ndarray:
+        raise NotImplementedError()
+    
+    def _set_data(self, data: DataFrame):
         raise NotImplementedError()
 
-    def _hessian(self, params: list) -> list:
-        raise NotImplementedError()
+    def _init_params(self) -> ndarray:
+        return np.zeros(self.n_params)
 
-    def fit(self, verbose: bool = False):
+    def fit(self, data: DataFrame, verbose: bool = False):
+        # TODO maybe have method param, kwargs for passing options?
+
+        self._set_data(data)
         initial_theta = self._init_params()
+
         result = minimize(
             fun = self._log_likelihood,
             x0 = initial_theta,
             method = "BFGS",
             jac = self._score,
-            # options = # TODO check options, could be a param itself?
+            options = {"disp": verbose}
         )
 
         if result.success:
             self.params = result.x
             self._rebase_abilities()
-            self.fit_summary = result
+            self._fit_summary = result
             if verbose:
-                # TODO improve verbose output(s) / levels
-                print("Success")
+                print("Successfully fit. Summary below:\n")
+                print(self._fit_summary)
         else:
-            print(f"Error encountered during fit: {result.message}")
+            print(f"Error: {result.message}")
 
-        return result
+        return self
     
     def _rebase_abilities(self):
         if self.params is None:
             print("Error: model hasn't been fitted.")
             return
         
-        self.params = self.params - np.min(self.params)
+        I = self.n_teams
+        self.params[1:I] = self.params[1:I] - np.min(self.params[1:I])
+    
+    def get_teams(self):
+        return self.teams
+    
+    def get_n_teams(self):
+        return self.n_teams
+    
+    def get_params(self, tidy_str: bool = False):
+        # TODO handle tidy printing in overrides since params is a single vectorised array of 
+        # the different params, like [1:I+1] is team strengths, rest is HFA's (varies per model)
+        return self.params
+    
+    def get_n_params(self) -> int:
+        raise NotImplementedError()
 
     def get_ranking(self):
-        assert self.params is not None
+        raise NotImplementedError()
 
-        results = {
-            "Team": self.teams,
-            "Ability": self.params
-        }
+    def get_odds(self, i: int, j: int, **kwargs) -> float:
+        # TODO check kwargs is the right way to generalise for HFA
+        raise NotImplementedError()
 
-        return DataFrame(results).sort_values(by="Ability", ascending=False)
+    def get_prob(self, i: int, j: int, **kwargs) -> float:
+        # TODO return expit(get_odds(params)) ?
+        raise NotImplementedError()
 
-    def get_odds(self):
-        pass
+    # def __str__(self):
+    #     pass
 
-    def get_prob(self):
-        pass
+    # def __repr__(self):
+    #     pass
 
-    # TODO add more get/set methods
-    # TODO check scikit learn model impls for inspo on other convenient functions
+    # TODO check scikit learn model, BT2, choix impls for inspo on other convenient functions
+    # TODO check other good OOP practices for methods like __str__
