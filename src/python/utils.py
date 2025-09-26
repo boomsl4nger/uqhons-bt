@@ -5,7 +5,28 @@ from scipy.optimize import check_grad
 
 from BaseModel import BaseBradleyTerry
 
+# TODO func that converts venue matrices into win totals (ie generic VANBT support)
+# will need for both static and discrete dyanmic mods
+# TODO data validation for basically everything, also should allow generic iterables that follow the
+# predefined column formats
+# TODO think about how best to do the hierarchy relationship matrices
+# TODO look at other util/support functions implemented by BT2 that would aid users
+
 def make_win_matrix(df: DataFrame) -> DataFrame:
+    """Create a win matrix for some given match data. The (i,j)-th element of the matrix is the
+    number of times that team i beat team j.
+
+    Note: currently expecting data with columns like `(teamA, teamB, scoreA, scoreB)`.
+
+    TODO support non-pandas data input \\
+    TODO better requirements, better validation, use first four columns explicitly
+
+    Args:
+        df (DataFrame): Match results data. See above format requirement.
+
+    Returns:
+        DataFrame: Win matrix.
+    """
     teams = np.unique(df.iloc[:, 0:1].values.ravel())
     wins = DataFrame(0, index=teams, columns=teams, dtype=float)
 
@@ -24,9 +45,42 @@ def make_win_matrix(df: DataFrame) -> DataFrame:
     return wins
 
 def make_time_blocked_win_matrix(df: DataFrame) -> dict[str: DataFrame]:
-    pass
+    """Creates win matrices for each time block (e.g. years) in some given match data. 
+    
+    See `make_win_matrix()`.
+
+    Note: currently assuming data has columns like `(teamA, teamB, scoreA, scoreB, year)`.
+
+    Returns:
+        dict: dictionary of win matrices, where the keys are the unique time blocks (e.g. years).
+    """
+    times = df.iloc[:, -1].unique()
+    matrices = {}
+
+    for time in times:
+        time_data = df[df.iloc[:, -1] == time].iloc[:, 0:4]
+        matrices[time] = make_win_matrix(time_data)
+
+    return matrices
 
 def make_venue_win_matrices(df: DataFrame) -> dict:
+    """Create the venue win matrices and return in a dictionary. This function supports three types
+    of venues: home, away, and neutral. The (i,j)-th element of each matrix represents the number of
+    times team i beat team j at the respective venue type.
+
+    Note: currently expecting data with columns `(teamA, teamB, scoreA, scoreB, is_neutral)`, where
+    the last column is a Boolean indicating if the match should be interpreted as a neutral venue.
+    Otherwise, assumes the first listed team is home by default.
+
+    TODO is the bool column the best idea? or maybe a map (-1, 0, 1)?
+    TODO allow last column to not be provided, and interpret as no neutral venues (still return mat)
+
+    Args:
+        df (DataFrame): Match results data. See above format requirements.
+
+    Returns:
+        dict: A dictionary of the win matrices, with keys `("home", "away", "neutral")`.
+    """
     teams = np.unique(df.iloc[:, 0:1].values.ravel())
     wins = {
         "home": DataFrame(0, index=teams, columns=teams, dtype=float),
