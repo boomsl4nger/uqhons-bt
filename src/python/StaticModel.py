@@ -16,6 +16,7 @@ class VANBT(BaseBradleyTerry):
     model-specific.
     """
     def _log_likelihood(self, params: ndarray) -> float:
+        # TODO refactor to use team names rather than positions
         loglik = 0
         for i in range(self.n_teams):
             for j in range(self.n_teams):
@@ -28,6 +29,7 @@ class VANBT(BaseBradleyTerry):
         return -loglik
 
     def _score(self, params: ndarray) -> ndarray:
+        # TODO refactor calc to use get_prob method instead to be cleaner
         score = np.zeros(self.n_params)
         for i in range(self.n_teams):
             score_i = 0
@@ -68,6 +70,9 @@ class VANBT(BaseBradleyTerry):
         exp_i = exp(self.params[i])
         exp_j = exp(self.params[j])
         return exp_i / (exp_i + exp_j)
+    
+    def summary(self):
+        return super().summary()
 
 
 class CHABT(BaseBradleyTerry):
@@ -95,6 +100,7 @@ class CHABT(BaseBradleyTerry):
 
     def _score(self, params: ndarray) -> ndarray:
         score = np.zeros(self.n_params)
+        # Thetas
         for i in range(self.n_teams):
             score_i = 0
             for j in range(self.n_teams):
@@ -112,6 +118,7 @@ class CHABT(BaseBradleyTerry):
 
             score[i] = score_i
 
+        # Alpha
         for i in range(self.n_teams):
             for j in range(self.n_teams):
                 score[-1] += self.data["home"].iloc[i, j] * (exp(params[j]) / (exp(params[i] + params[-1]) + exp(params[j]))) \
@@ -147,6 +154,9 @@ class CHABT(BaseBradleyTerry):
         exp_i = exp(self.params[i])
         exp_j = exp(self.params[j])
         return exp_i / (exp_i + exp_j)
+    
+    def summary(self):
+        return super().summary()
 
 
 class CHIBT(BaseBradleyTerry):

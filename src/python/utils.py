@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from pandas import DataFrame, Series
+from pandas import DataFrame
 from scipy.optimize import check_grad
 
 from BaseModel import BaseBradleyTerry
@@ -67,6 +67,17 @@ def matrix_to_bin_counts(mat):
     pass
 
 def make_victory_totals(data: DataFrame, home: bool = False) -> DataFrame:
+    """Helper function to convert a win matrix into a table of total wins for each team. Also
+    includes total losses, total games, and the win rate (%).
+
+    TODO support for venue-based and time-based options
+
+    Args:
+        data (DataFrame): Win matrix. See `make_win_matrix()`.
+
+    Returns:
+        DataFrame: Table of victory totals per team.
+    """
     wins = data.sum(axis=1)
     losses = data.sum(axis=0)
     total_games = wins + losses
@@ -81,6 +92,15 @@ def make_victory_totals(data: DataFrame, home: bool = False) -> DataFrame:
     return DataFrame(result).reset_index(drop=True)
 
 def check_model_grad(model: BaseBradleyTerry) -> float:
+    """Helper function to check the analytic score statistic against a numerical derivative. Wraps
+    around the `scipy.check_grad` function.
+
+    Args:
+        model (BaseBradleyTerry): BT model to check.
+
+    Returns:
+        float: Difference (absolute error) in the gradients.
+    """
     # x0 = np.zeros(model.n_params) + 1 / model.n_params
     rng = np.random.default_rng()
     x0 = rng.random(model.n_params) * 10

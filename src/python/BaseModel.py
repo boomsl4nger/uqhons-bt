@@ -122,7 +122,7 @@ class BaseBradleyTerry():
             return
         
         I = self.n_teams
-        self.params[0:I] = self.params[0:I] - np.min(self.params[0:I])
+        self.params[0:I] -= np.min(self.params[0:I])
     
     def get_teams(self) -> list:
         """Get the list of team names for the model."""
@@ -155,12 +155,9 @@ class BaseBradleyTerry():
         """
         assert self.params is not None
 
-        results = {
-            "Team": self.teams,
-            "Ability": self.params[0:self.n_teams]
-        }
+        df = DataFrame(self.params[0:self.n_teams], index=self.teams, columns=["Ability"])
 
-        return DataFrame(results).sort_values(by="Ability", ascending=False)
+        return df.sort_values(by="Ability", ascending=False).reset_index(names="Teams")
 
     def get_odds(self, i: int, j: int, **kwargs) -> float:
         # TODO check kwargs is the right way to generalise for HFA
@@ -178,5 +175,6 @@ class BaseBradleyTerry():
     def __repr__(self):
         return f"{self.__class__.__name__}()"
 
+    # TODO add check_fitted method to generically handle unwanted calls before fitting
     # TODO check scikit learn model, BT2, choix impls for inspo on other convenient functions
     # TODO check other good OOP practices for methods like __str__
