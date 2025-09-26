@@ -178,3 +178,78 @@ class BaseBradleyTerry():
     # TODO add check_fitted method to generically handle unwanted calls before fitting
     # TODO check scikit learn model, BT2, choix impls for inspo on other convenient functions
     # TODO check other good OOP practices for methods like __str__
+
+class BaseDyBT(BaseBradleyTerry):
+    """Abstract base class for a Dynamic Bradley-Terry model. This is specifically for our discrete
+    dynamic models, where each team has a different strength for each time block (year) in the data,
+    as well as whatever additional order effects are being modelled (e.g. HFA).
+    """
+    def __init__(self):
+        super().__init__()
+        self.times = None
+        self.n_times = None
+
+    def _rebase_abilities(self):
+        if self.params is None:
+            print("Error: model hasn't been fitted.")
+            return
+
+        # Rebase such that the worst team in each year has strength zero
+        for t in range(self.n_times):
+            # Get indices assuming teams are grouped by year
+            # TODO refactor for generic indexing fn
+            start_index = t * self.n_teams
+            end_index = (t + 1) * self.n_teams
+
+            self.params[start_index:end_index] -= np.min(self.params[start_index:end_index])
+    
+    def get_times(self):
+        """Get the names of the time blocks in the data. Usually should be years (ints)."""
+        return self.times
+    
+    def get_n_times(self):
+        """Get the number of time blocks in the data."""
+        return self.n_times
+
+    def get_ranking(self, sort_by: str = None) -> DataFrame:
+        """
+        Gets the estimated team abilities for all years, with customizable sorting.
+
+        Args:
+            sort_by (str): Specifies the column to sort the teams by. Options include:
+                        - 'Year X' (e.g., 'Year 1', 'Year 2') to sort by a specific year's ability.
+                        - 'Average' to sort by the average ability across all years.
+                        - 'Team' to sort alphabetically by team name.
+
+        Returns:
+            DataFrame: A DataFrame with team names and ability estimates for each year, sorted.
+        """
+        assert self.params is not None
+
+        # Reshape to (I x T) matrix format
+        # TODO account for HGA params in non-van models
+        ability_matrix = self.params.reshape(self.n_times, self.n_teams).T
+
+        results_df = DataFrame(
+            ability_matrix, 
+            index = self.teams, 
+            columns = self.times
+        )
+        
+        # Add an average column for potential sorting usability
+        results_df["Average"] = results_df.mean(axis=1)
+        
+        # Various options for sorting while I think about a good standard approach
+        # TODO consider alternatives, like rebasing relative to average strength, or displaying 
+        # probability of winning against an average team (strength 0)
+        if sort_by == "Team":
+            results_df = results_df.sort_index(ascending=True)
+        elif sort_by in results_df.columns or sort_by == "Average":
+            results_df = results_df.sort_values(by=sort_by, ascending=False)
+        else:
+            # Default sort_by is first time block
+            results_df = results_df.sort_values(by=results_df.columns[0], ascending=False)
+
+        results_df = results_df.reset_index(names="Team")
+
+        return results_df
