@@ -14,11 +14,35 @@ class BaseBradleyTerry():
         before model fitting with `_set_data()` method.
         """
         self.data = None
-        self.n_teams = None
         self.teams = None
-        self.n_params = None
+        self.n_teams = None
         self.params = None
+        self.n_params = None
         self._fit_summary = None
+
+    def _set_data(self, data):
+        raise NotImplementedError()
+
+    def _init_params(self) -> ndarray:
+        """Initialise model parameters for fitting. Currently just using a zero vector for all
+        initial parameters.
+
+        Returns:
+            ndarray: Initial parameter vector.
+        """
+        return np.zeros(self.n_params)
+    
+    def _check_fitted(self) -> bool:
+        """Check if the model parameters have been fit, and raises an exception if not.
+
+        Returns:
+            bool: True if the model parameters have been fit.
+        """
+        if self.params is None:
+            print(f"Error: model parameters are not fitted.")
+            raise # TODO better way to do this?
+
+        return True
 
     def _log_likelihood(self, params: ndarray) -> float:
         """Calculates the (negative) log-likelihood for the Bradley-Terry model.
@@ -52,24 +76,6 @@ class BaseBradleyTerry():
             ndarray: Hessian of the (negative) LLH.
         """
         raise NotImplementedError()
-    
-    def _set_data(self, data: DataFrame):
-        """Set class variables based on the given data. This is done just before model fitting
-        rather than on init, following scikit-learn syntax.
-
-        Args:
-            data (DataFrame): Data for the model.
-        """
-        raise NotImplementedError()
-
-    def _init_params(self) -> ndarray:
-        """Initialise model parameters for fitting. Currently just using a zero vector for all
-        initial parameters.
-
-        Returns:
-            ndarray: Initial parameter vector.
-        """
-        return np.zeros(self.n_params)
 
     def fit(self, data: DataFrame, verbose: bool = False):
         """Fit the Bradley-Terry model to the data. The model parameters are estimated by minimising
@@ -104,35 +110,32 @@ class BaseBradleyTerry():
             self._rebase_abilities()
             self._fit_summary = result
             if verbose:
-                print("Successfully fit. Summary below:\n")
+                print("Successfully fit model parameters.\n")
                 print(self._fit_summary)
         else:
-            print(f"Error: {result.message}")
+            print(result.message)
 
         return self
     
     def _rebase_abilities(self):
         """Helper function to rebase the estimated team strength parameters such that the 'worst'
-        team has zero strength. Needed to enforce model identifiability constraint.
-
-        TODO: reference?
-        """
-        if self.params is None:
-            print("Error: model hasn't been fitted.")
-            return
+        team has zero strength. Needed to enforce model identifiability constraint. 
         
-        I = self.n_teams
-        self.params[0:I] -= np.min(self.params[0:I])
+        For the static Bradley-Terry models, we assume that the team strength parameters are the 
+        first `I` elements in the parameter array, where `I` is the number of teams.
+        """
+        self._check_fitted()
+        self.params[0:self.n_teams] -= np.min(self.params[0:self.n_teams])
     
     def get_teams(self) -> list:
-        """Get the list of team names for the model."""
+        """Get the list of team names in the data."""
         return self.teams
     
     def get_n_teams(self) -> int:
-        """Get the number of teams in the model."""
+        """Get the number of teams in the data."""
         return self.n_teams
     
-    def get_params(self):
+    def get_params(self) -> ndarray:
         """Get the parameter vector for the model. See class docstring for format, since we need to
         vectorise for use in `fit()` method."""
         return self.params
@@ -142,10 +145,15 @@ class BaseBradleyTerry():
     
     def summary(self) -> str:
         """Return a string for a pretty printed summary of the model."""
-        # TODO handle tidy printing in overrides since params is a single vectorised array of 
-        # the different params, like [1:I+1] is team strengths, rest is HFA's (varies per model)
         raise NotImplementedError()
 
+    def get_odds(self, i: int, j: int) -> float:
+        raise NotImplementedError()
+
+    def get_prob(self, i: int, j: int) -> float:
+        # TODO return expit(get_odds(params)) ?
+        raise NotImplementedError()
+    
     def get_ranking(self):
         """Get the ranking of teams based on their estimated strengths, in descending order. Note
         that the 'worst' team will have zero strength for identifiability.
@@ -153,19 +161,9 @@ class BaseBradleyTerry():
         Returns:
             DataFrame: Sorted tuples of team name and estimated strength.
         """
-        assert self.params is not None
-
+        self._check_fitted()
         df = DataFrame(self.params[0:self.n_teams], index=self.teams, columns=["Ability"])
-
         return df.sort_values(by="Ability", ascending=False).reset_index(names="Teams")
-
-    def get_odds(self, i: int, j: int, **kwargs) -> float:
-        # TODO check kwargs is the right way to generalise for HFA
-        raise NotImplementedError()
-
-    def get_prob(self, i: int, j: int, **kwargs) -> float:
-        # TODO return expit(get_odds(params)) ?
-        raise NotImplementedError()
 
     def __str__(self):
         if self.params is None:
@@ -175,9 +173,7 @@ class BaseBradleyTerry():
     def __repr__(self):
         return f"{self.__class__.__name__}()"
 
-    # TODO add check_fitted method to generically handle unwanted calls before fitting
     # TODO check scikit learn model, BT2, choix impls for inspo on other convenient functions
-    # TODO check other good OOP practices for methods like __str__
 
 class BaseDyBT(BaseBradleyTerry):
     """Abstract base class for a Dynamic Bradley-Terry model. This is specifically for our discrete
@@ -194,7 +190,7 @@ class BaseDyBT(BaseBradleyTerry):
             print("Error: model hasn't been fitted.")
             return
 
-        # Rebase such that the worst team in each year has strength zero
+        # Rebase such that worst team in each year has strength zero
         for t in range(self.n_times):
             # Get indices assuming teams are grouped by year
             # TODO refactor for generic indexing fn
@@ -224,7 +220,7 @@ class BaseDyBT(BaseBradleyTerry):
         Returns:
             DataFrame: A DataFrame with team names and ability estimates for each year, sorted.
         """
-        assert self.params is not None
+        self._check_fitted()
 
         # Reshape to (I x T) matrix format
         # TODO account for HGA params in non-van models
