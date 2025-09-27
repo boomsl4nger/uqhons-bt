@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from pandas import DataFrame
 from scipy.optimize import check_grad
 
@@ -115,10 +114,47 @@ def make_venue_win_matrices(df: DataFrame) -> dict:
     return wins
 
 def make_time_blocked_venue_win_matrices(df: DataFrame) -> dict[str: dict[str: DataFrame]]:
-    pass
+    """Creates venue win matrices for each time block (e.g. years) in some given match data. 
+    
+    See `make_venue_win_matrix()`.
 
-def matrix_to_bin_counts(mat):
-    pass
+    Note: currently assuming data has columns like `(teamA, teamB, scoreA, scoreB, is_neutral, year)`.
+
+    Returns:
+        dict: dictionary of dictionary of venue win matrices, where the outer keys are the unique 
+        time blocks (e.g. years) and inner keys are the venue types.
+    """
+    times = df.iloc[:, -1].unique()
+    matrices = {}
+
+    for time in times:
+        time_data = df[df.iloc[:, -1] == time].iloc[:, 0:5]
+        matrices[time] = make_venue_win_matrices(time_data)
+
+    return matrices
+
+def matrix_to_bin_counts(mat: DataFrame) -> DataFrame:
+    """Convert a win matrix to binomial counts. Contains the wins and losses for each unique pairing
+    of teams in the data. The `wins` column denotes the wins of the first listed team `team1` 
+    over the second `team2`, and similarly for `losses`.
+
+    Args:
+        mat (DataFrame): Win matrix. See `make_win_matrix()`.
+
+    Returns:
+        DataFrame: Table of binomial win and loss counts for each pairing of teams.
+    """
+    teams = mat.columns.to_list()
+    n_teams = len(teams)
+    result = []
+
+    for i in range(n_teams):
+        for j in range(i+1, n_teams):
+            result.append([
+                teams[i], teams[j], mat.iloc[i, j], mat.iloc[j, i]
+            ])
+    
+    return DataFrame(result, columns=["team1", "team2", "wins", "losses"])
 
 def make_victory_totals(data: DataFrame, home: bool = False) -> DataFrame:
     """Helper function to convert a win matrix into a table of total wins for each team. Also
@@ -159,12 +195,3 @@ def check_model_grad(model: BaseBradleyTerry) -> float:
     rng = np.random.default_rng()
     x0 = rng.random(model.n_params) * 10
     return check_grad(model._log_likelihood, model._score, x0)
-
-
-
-if __name__ in "__main__":
-    # Some very basic test cases -> move to a test file
-    path = "data/VFL1916.csv"
-    vfl_df = pd.read_csv(path, header=0)
-    vfl_mat = make_win_matrix(vfl_df)
-    print(vfl_mat)
