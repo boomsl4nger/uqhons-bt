@@ -5,6 +5,9 @@ from scipy.special import expit
 
 from BaseModel import BaseBradleyTerry
 
+# TODO hessians and summaries (init errors on summary call)
+# TODO type hint fields? eg self.data: dict, self.teams: list
+# TODO enum for things like venue types
 class VANBT(BaseBradleyTerry):
     """Class for a 'vanilla' (VAN) Bradley-Terry model. This is the original form of the model as proposed
     by Bradley & Terry (1952). The term 'vanilla' follows from Jones (2021, unpublished) to describe
@@ -13,11 +16,10 @@ class VANBT(BaseBradleyTerry):
     The parameters are the team strengths `theta_i` on the log-scale for each team `i=1, ..., I`.
 
     TODO define a nice and small outline for these class descriptions.
-    TODO docstrings for the _set_data, get_n_params, and odds/prob methods, since these are 
-    model-specific.
+    TODO docstrings for n_params/get_param/odds/prob methods, since these are model-specific
     """
     def _set_data(self, data: DataFrame):
-        """Set class variables based on the given data.
+        """Set class variables based on the given data. TODO specify data requirements
 
         Args:
             data (DataFrame): Data for the VANBT model.
@@ -25,8 +27,8 @@ class VANBT(BaseBradleyTerry):
         # TODO data validation
         # TODO allow for non-pandas data matrix types, ie, generic iterables?
         # Assume data is a pandas df for now
-        if not isinstance(data, DataFrame) and data.shape[0] != data.shape[1]:
-            raise ValueError("Input 'data' must be a square DataFrame of dict of such.")
+        assert isinstance(data, DataFrame)
+        assert data.shape[0] == data.shape[1]
         
         self.data = data
         self.teams = data.columns.tolist()
@@ -65,14 +67,14 @@ class VANBT(BaseBradleyTerry):
     def _hessian(self, params: ndarray) -> ndarray:
         raise NotImplementedError()
 
-    def get_param(self, team: str):
+    def get_param(self, team: str) -> float:
         """Get a model parameter. For the VANBT model, this is just the team strengths.
 
         Args:
             team (str): Name of team. Raises an error if the team name is invalid.
 
         Returns:
-            float: Value of the fitted parameter.
+            float: Parameter value.
         """
         self._check_fitted()
         
@@ -84,10 +86,10 @@ class VANBT(BaseBradleyTerry):
 
         return self.params[index]
 
-    def get_n_params(self):
+    def get_n_params(self) -> int:
         return self.n_teams
     
-    def summary(self):
+    def summary(self) -> str:
         return super().summary()
     
     @staticmethod
@@ -114,6 +116,19 @@ class CHABT(BaseBradleyTerry):
 
     The parameter vector contains the team strengths, and the common HFA parameter at the end.
     """
+    def _set_data(self, data: dict[str: DataFrame]):
+        # TODO data validation
+        # TODO allow for non-pandas data matrix types, ie, generic iterables
+        # Assume dict of DFs for now
+        assert isinstance(data, dict)
+        assert list(data.keys()) == ["home", "away", "neutral"]
+        assert all([i.shape[0] == i.shape[1] for i in data.values()])
+        
+        self.data = data
+        self.teams = data["home"].columns.tolist()
+        self.n_teams = len(self.teams)
+        self.n_params = self.get_n_params()
+
     def _log_likelihood(self, params: ndarray) -> float:
         loglik = 0
         for i in range(self.n_teams):
@@ -123,11 +138,12 @@ class CHABT(BaseBradleyTerry):
 
                 home_wins = self.data["home"].iloc[i, j]
                 away_wins = self.data["away"].iloc[i, j]
-                neutral_wins = self.data["neutral"].iloc[i, j]
+                neut_wins = self.data["neutral"].iloc[i, j]
+                i_beats_j_home = self._calculate_prob(params[i], params[j], params[-1])
+                i_beats_j_away = self._calculate_prob(params[i], params[j], -params[-1])
+                i_beats_j_neut = self._calculate_prob(params[i], params[j], 0)
 
-                loglik += home_wins * (params[i] + params[-1] - log(exp(params[i] + params[-1]) + exp(params[j]))) \
-                    + away_wins * (params[i] - log(exp(params[i]) + exp(params[j] + params[-1]))) \
-                    + neutral_wins * (params[i] - log(exp(params[i]) + exp(params[j])))
+                loglik += home_wins * log(i_beats_j_home) + away_wins * log(i_beats_j_away) + neut_wins * log(i_beats_j_neut)
 
         return -loglik
 
@@ -142,126 +158,89 @@ class CHABT(BaseBradleyTerry):
 
                 home = self.data["home"]
                 away = self.data["away"]
-                neutral = self.data["neutral"]
+                neut = self.data["neutral"]
+                i_beats_j_home = self._calculate_prob(params[i], params[j], params[-1])
+                i_beats_j_away = self._calculate_prob(params[i], params[j], -params[-1])
+                i_beats_j_neut = self._calculate_prob(params[i], params[j], 0)
 
-                score_i += home.iloc[i, j] + away.iloc[i, j] + neutral.iloc[i, j] \
-                    - (home.iloc[i, j] + away.iloc[j, i]) * (exp(params[i] + params[-1]) / (exp(params[i] + params[-1]) + exp(params[j]))) \
-                    - (home.iloc[j, i] + away.iloc[i, j]) * (exp(params[i]) / (exp(params[i]) + exp(params[j] + params[-1]))) \
-                    - (neutral.iloc[i, j] + neutral.iloc[j, i]) * (exp(params[i]) / (exp(params[i]) + exp(params[j])))
+                score_i += home.iloc[i, j] + away.iloc[i, j] + neut.iloc[i, j] \
+                    - (home.iloc[i, j] + away.iloc[j, i]) * i_beats_j_home \
+                    - (home.iloc[j, i] + away.iloc[i, j]) * i_beats_j_away \
+                    - (neut.iloc[i, j] + neut.iloc[j, i]) * i_beats_j_neut
 
             score[i] = score_i
 
         # Alpha
         for i in range(self.n_teams):
             for j in range(self.n_teams):
-                score[-1] += self.data["home"].iloc[i, j] * (exp(params[j]) / (exp(params[i] + params[-1]) + exp(params[j]))) \
-                    - self.data["away"].iloc[i, j] * (exp(params[j] + params[-1]) / (exp(params[i]) + exp(params[j] + params[-1])))
+                j_beats_i_home = self._calculate_prob(params[j], params[i], params[-1])
+                j_beats_i_away = self._calculate_prob(params[j], params[i], -params[-1])
+                score[-1] += self.data["home"].iloc[i, j] * j_beats_i_away - self.data["away"].iloc[i, j] * j_beats_i_home
 
         return -score
 
     def _hessian(self, params: ndarray) -> ndarray:
         raise NotImplementedError()
     
-    def _set_data(self, data: dict[str: DataFrame]):
-        # TODO data validation
-        # TODO allow for non-pandas data matrix types, ie, generic iterables
-        # Assume dict of DFs for now
-        if not isinstance(data, dict):
-            raise ValueError("Input 'data' must be a dictionary of square DataFrames.")
+    def get_param(self, param_type: str, team: str = None) -> float:
+        """Gets a model parameter. For the CHABT model, this is either a team strength or the
+        constant home-ground advantage term.
+
+        Args:
+            param_type (str): `"strength"` for team strength; `"hga"` for home-ground advantage.
+            team (str, optional): If wanting a team strength, name of the team. Defaults to None.
+
+        Returns:
+            float: Parameter value.
+        """
+        self._check_fitted()
         
-        assert list(data.keys()) == ["home", "away", "neutral"]
-        assert all([i.shape[0] == i.shape[1] for i in data.values()])
-        
-        self.data = data
-        self.teams = data["home"].columns.tolist()
-        self.n_teams = len(self.teams)
-        self.n_params = self.get_n_params()
+        if param_type == "strength":
+            try:
+                index = self.teams.index(team)
+            except ValueError:
+                print(f"Team '{team}' not found in the model.")
+                raise
+        elif param_type == "hga":
+            index = -1
+        else:
+            raise ValueError(f"Parameter type {param_type} is invalid. See docstring.")
+
+        return self.params[index]
     
     def get_n_params(self):
         return self.n_teams + 1
-    
-    def get_odds(self, i, j, venue = "home"):
-        return self.params[i] - self.params[j]
-
-    def get_prob(self, i, j, venue = "home"):
-        exp_i = exp(self.params[i])
-        exp_j = exp(self.params[j])
-        return exp_i / (exp_i + exp_j)
     
     def summary(self):
         return super().summary()
 
+    @staticmethod
+    def _calculate_odds(i: float, j: float, h: float) -> float:
+        return i - j + h
+
+    def get_odds(self, i: str | int, j: str | int, venue: str = "home") -> float:
+        venue_map = {"home": 1, "neutral": 0, "away": -1}
+        param_i = self.params[i] if type(i) == int else self.get_param(i)
+        param_j = self.params[j] if type(j) == int else self.get_param(j)
+        hga = self.params[-1] * venue_map[venue]
+        return self._calculate_odds(param_i, param_j, hga)
+    
+    @staticmethod
+    def _calculate_prob(i: float, j: float, h: float) -> float:
+        return expit(CHABT._calculate_odds(i, j, h))
+
+    def get_prob(self, i: str | int, j: str | int, venue: str = "home") -> float:
+        # TODO refactor out?
+        return expit(self.get_odds(i, j, venue))
+
 
 class CHIBT(BaseBradleyTerry):
-    def get_n_params(self):
-        return self.n_teams + 1
-
-    def _init_params(self):
-        return np.zeros(self.n_params)
-
-    def _log_likelihood(self, params: ndarray) -> float:
-        loglik = 0
-        return -loglik
-
-    def _score(self, params: ndarray) -> ndarray:
-        score = np.zeros(self.n_params)
-        return -score
-
-    def _hessian(self, params: ndarray) -> ndarray:
-        raise NotImplementedError()
-    
-    def get_odds(self, i, j):
-        pass
-
-    def get_prob(self, i, j):
-        pass
+    pass
 
 
 class TSHBT(BaseBradleyTerry):
-    def get_n_params(self):
-        return self.n_teams + 1
-
-    def _init_params(self):
-        return np.zeros(self.n_params)
-
-    def _log_likelihood(self, params: ndarray) -> float:
-        loglik = 0
-        return -loglik
-
-    def _score(self, params: ndarray) -> ndarray:
-        score = np.zeros(self.n_params)
-        return -score
-
-    def _hessian(self, params: ndarray) -> ndarray:
-        raise NotImplementedError()
-    
-    def get_odds(self, i, j):
-        pass
-
-    def get_prob(self, i, j):
-        pass
+    pass
 
 
 class HIEBT(BaseBradleyTerry):
-    def get_n_params(self):
-        return self.n_teams + 1
-
-    def _init_params(self):
-        return np.zeros(self.n_params)
-
-    def _log_likelihood(self, params: ndarray) -> float:
-        loglik = 0
-        return -loglik
-
-    def _score(self, params: ndarray) -> ndarray:
-        score = np.zeros(self.n_params)
-        return -score
-
-    def _hessian(self, params: ndarray) -> ndarray:
-        raise NotImplementedError()
-    
-    def get_odds(self, i, j):
-        pass
-
-    def get_prob(self, i, j):
-        pass
+    pass

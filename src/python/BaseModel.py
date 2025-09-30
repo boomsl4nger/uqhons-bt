@@ -5,6 +5,7 @@ from scipy.optimize import minimize
 
 # TODO make abstract base class
 # TODO consider staticmethods (LLH, odds, prob)
+# TODO naming for odds (when it's actually log-odds)
 class BaseBradleyTerry():
     """Abstract base class for Bradley-Terry models. Mainly specifies the methods that each specific
     model will need to implement.
