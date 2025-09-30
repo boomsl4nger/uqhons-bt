@@ -4,6 +4,7 @@ from pandas import DataFrame
 from scipy.optimize import minimize
 
 # TODO make abstract base class
+# TODO consider staticmethods (LLH, odds, prob)
 class BaseBradleyTerry():
     """Abstract base class for Bradley-Terry models. Mainly specifies the methods that each specific
     model will need to implement.
@@ -135,22 +136,38 @@ class BaseBradleyTerry():
         """Get the number of teams in the data."""
         return self.n_teams
     
-    def get_params(self) -> ndarray:
-        """Get the parameter vector for the model. See class docstring for format, since we need to
-        vectorise for use in `fit()` method."""
+    def get_param(self) -> float:
+        # Function for user to get a specific parameter from the model, since directly working with
+        # the vectorised array is not convenient
+        raise NotImplementedError()
+    
+    def _get_params(self) -> ndarray:
+        """Get the parameter vector for the model. Recommend using `get_param()` method instead.
+        See class docstring for format, since we need to vectorise for use in `fit()` method."""
         return self.params
     
     def get_n_params(self) -> int:
+        """Get the number of parameters in the model."""
         raise NotImplementedError()
     
     def summary(self) -> str:
         """Return a string for a pretty printed summary of the model."""
         raise NotImplementedError()
-
-    def get_odds(self, i: int, j: int) -> float:
+    
+    @staticmethod
+    def _calculate_odds(i: float, j: float, **kwargs) -> float:
+        """Calculate log-odds for `{i beats j}`. Static method for each subclass."""
         raise NotImplementedError()
 
-    def get_prob(self, i: int, j: int) -> float:
+    def get_odds(self, i: str | int, j: str | int, **kwargs) -> float:
+        raise NotImplementedError()
+    
+    @staticmethod
+    def _calculate_prob(i: float, j: float, **kwargs) -> float:
+        """Calculate probability for `{i beats j}`. Static method for each subclass."""
+        raise NotImplementedError()
+
+    def get_prob(self, i: str | int, j: str | int, **kwargs) -> float:
         # TODO return expit(get_odds(params)) ?
         raise NotImplementedError()
     
@@ -172,8 +189,6 @@ class BaseBradleyTerry():
 
     def __repr__(self):
         return f"{self.__class__.__name__}()"
-
-    # TODO check scikit learn model, BT2, choix impls for inspo on other convenient functions
 
 class BaseDyBT(BaseBradleyTerry):
     """Abstract base class for a Dynamic Bradley-Terry model. This is specifically for our discrete

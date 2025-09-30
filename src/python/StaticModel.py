@@ -1,6 +1,7 @@
 import numpy as np
 from numpy import ndarray, exp, log
 from pandas import DataFrame
+from scipy.special import expit
 
 from BaseModel import BaseBradleyTerry
 
@@ -15,42 +16,14 @@ class VANBT(BaseBradleyTerry):
     TODO docstrings for the _set_data, get_n_params, and odds/prob methods, since these are 
     model-specific.
     """
-    def _log_likelihood(self, params: ndarray) -> float:
-        # TODO refactor to use team names rather than positions
-        loglik = 0
-        for i in range(self.n_teams):
-            for j in range(self.n_teams):
-                if i == j: # Assume teams to not play themselves (main diagonal has zeroes)
-                    continue
-
-                wins = self.data.iloc[i, j]
-                loglik += wins * (params[i] - log(exp(params[i]) + exp(params[j])))
-
-        return -loglik
-
-    def _score(self, params: ndarray) -> ndarray:
-        # TODO refactor calc to use get_prob method instead to be cleaner
-        score = np.zeros(self.n_params)
-        for i in range(self.n_teams):
-            score_i = 0
-            for j in range(self.n_teams):
-                if i == j: # Assume teams to not play themselves (main diagonal has zeroes)
-                    continue
-
-                wins = self.data.iloc[i, j]
-                losses = self.data.iloc[j, i]
-                score_i += wins - (wins + losses) * (exp(params[i]) / (exp(params[i]) + exp(params[j])))
-
-            score[i] = score_i
-
-        return -score
-
-    def _hessian(self, params: ndarray) -> ndarray:
-        raise NotImplementedError()
-    
     def _set_data(self, data: DataFrame):
+        """Set class variables based on the given data.
+
+        Args:
+            data (DataFrame): Data for the VANBT model.
+        """
         # TODO data validation
-        # TODO allow for non-pandas data matrix types, ie, generic iterables
+        # TODO allow for non-pandas data matrix types, ie, generic iterables?
         # Assume data is a pandas df for now
         if not isinstance(data, DataFrame) and data.shape[0] != data.shape[1]:
             raise ValueError("Input 'data' must be a square DataFrame of dict of such.")
@@ -60,19 +33,79 @@ class VANBT(BaseBradleyTerry):
         self.n_teams = len(data.columns)
         self.n_params = self.get_n_params()
 
+    def _log_likelihood(self, params: ndarray) -> float:
+        # TODO think about using team names w/ .loc? is this handled enough in _set_data?
+        loglik = 0
+        for i in range(self.n_teams):
+            for j in range(self.n_teams):
+                if i == j: # Assume teams to not play themselves (main diagonal has zeroes)
+                    continue
+
+                wins = self.data.iloc[i, j]
+                loglik += wins * log(self._calculate_prob(params[i], params[j]))
+
+        return -loglik
+
+    def _score(self, params: ndarray) -> ndarray:
+        score = np.zeros(self.n_params)
+        for i in range(self.n_teams):
+            score_i = 0
+            for j in range(self.n_teams):
+                if i == j: # Assume teams to not play themselves (main diagonal has zeroes)
+                    continue
+
+                wins = self.data.iloc[i, j]
+                losses = self.data.iloc[j, i]
+                score_i += wins - (wins + losses) * self._calculate_prob(params[i], params[j])
+
+            score[i] = score_i
+
+        return -score
+
+    def _hessian(self, params: ndarray) -> ndarray:
+        raise NotImplementedError()
+
+    def get_param(self, team: str):
+        """Get a model parameter. For the VANBT model, this is just the team strengths.
+
+        Args:
+            team (str): Name of team. Raises an error if the team name is invalid.
+
+        Returns:
+            float: Value of the fitted parameter.
+        """
+        self._check_fitted()
+        
+        try:
+            index = self.teams.index(team)
+        except ValueError:
+            print(f"Team '{team}' not found in the model.")
+            raise
+
+        return self.params[index]
+
     def get_n_params(self):
         return self.n_teams
-
-    def get_odds(self, i: int, j: int):
-        return self.params[i] - self.params[j]
-
-    def get_prob(self, i: int, j: int):
-        exp_i = exp(self.params[i])
-        exp_j = exp(self.params[j])
-        return exp_i / (exp_i + exp_j)
     
     def summary(self):
         return super().summary()
+    
+    @staticmethod
+    def _calculate_odds(i: float, j: float) -> float:
+        return i - j
+
+    def get_odds(self, i: str | int, j: str | int) -> float:
+        param_i = self.params[i] if type(i) == int else self.get_param(i)
+        param_j = self.params[j] if type(j) == int else self.get_param(j)
+        return self._calculate_odds(param_i, param_j)
+    
+    @staticmethod
+    def _calculate_prob(i: float, j: float) -> float:
+        return expit(VANBT._calculate_odds(i, j))
+
+    def get_prob(self, i: str | int, j: str | int) -> float:
+        # TODO refactor out?
+        return expit(self.get_odds(i, j))
 
 
 class CHABT(BaseBradleyTerry):
