@@ -21,6 +21,8 @@ class BaseBradleyTerry():
         self.params = None
         self.n_params = None
         self._fit_summary = None
+        self._hess_inv = None
+        self.errors = None
 
     def _set_data(self, data):
         raise NotImplementedError()
@@ -128,6 +130,25 @@ class BaseBradleyTerry():
         """
         self._check_fitted()
         self.params[0:self.n_teams] -= np.min(self.params[0:self.n_teams])
+
+    def _calculate_errors(self):
+        """Calculate the standard errors for the model parameters using the inverse of the Hessian.
+        Hessian should be implemented analytically, but numerical one is available as an element of
+        `self._fit_summary`."""
+        self._check_fitted()
+        
+        # We need to consider the zeroed parameter from the identifiability constraint
+        # Calculate the full Hessian, then remove row/col and invert (should now be non-singular)
+        # Standard errors are the sqrts of diagonal elements (obs Fisher approximates covariance mat)
+        # Finally, just set the zeroed parameter SE to zero itself
+        zero_idx = np.argmin(self.params)
+        hess = self._hessian(self.params)
+        hess_reduced = np.delete(np.delete(hess, zero_idx, axis=0), zero_idx, axis=1)
+
+        # TODO wrap in try-except for np.linalg.LinAlgError if still singular...
+        self._hess_inv = np.linalg.inv(hess_reduced)
+        temp_errors = np.sqrt(np.diag(self._hess_inv))
+        self.errors = np.insert(temp_errors, zero_idx, 0)
     
     def get_teams(self) -> list:
         """Get the list of team names in the data."""
@@ -180,7 +201,11 @@ class BaseBradleyTerry():
             DataFrame: Sorted tuples of team name and estimated strength.
         """
         self._check_fitted()
-        df = DataFrame(self.params[0:self.n_teams], index=self.teams, columns=["Ability"])
+        dummy = {"Ability": self.params[0:self.n_teams]}
+        if self.errors is not None:
+            dummy["Error"] = self.errors[0:self.n_teams]
+
+        df = DataFrame(dummy, index=self.teams)
         return df.sort_values(by="Ability", ascending=False).reset_index(names="Teams")
 
     def __str__(self):
