@@ -1,5 +1,7 @@
 import numpy as np
 from pandas import DataFrame
+from scipy.differentiate import hessian
+from scipy.linalg import norm
 from scipy.optimize import check_grad
 
 from BaseModel import BaseBradleyTerry
@@ -195,3 +197,27 @@ def check_model_grad(model: BaseBradleyTerry) -> float:
     rng = np.random.default_rng()
     x0 = rng.random(model.n_params) * 10
     return check_grad(model._log_likelihood, model._score, x0)
+
+def check_model_hess(model: BaseBradleyTerry) -> tuple:
+    """Helper function to check the analytic Hessian against a numerical calculation. Uses scipy's
+    `differentiate.hessian` function for the latter. Difference is calculated by Frobenius norm.
+
+    See: https://docs.scipy.org/doc//scipy/reference/generated/scipy.differentiate.hessian.html
+
+    Args:
+        model (BaseBradleyTerry): BT model to check. Must have called `_set_data()`.
+
+    Returns:
+        tuple: difference, H_analytic, H_numeric
+    """
+    rng = np.random.default_rng()
+    x0 = rng.random(model.n_params) * 10
+    hess_ana = model._hessian(x0)
+    hess_num = hessian(model._log_likelihood, x0)
+
+    if not hess_num.success.all():
+        print(f"Error in numerical Hessian calculation: status matrix below\n{hess_num.status}")
+
+    hess_diff = norm(hess_ana - hess_num.ddf, ord="fro")
+
+    return hess_diff, hess_ana, hess_num.ddf
