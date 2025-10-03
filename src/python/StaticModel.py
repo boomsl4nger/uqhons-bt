@@ -65,7 +65,30 @@ class VANBT(BaseBradleyTerry):
         return -score
 
     def _hessian(self, params: ndarray) -> ndarray:
-        raise NotImplementedError()
+        hess = np.zeros((self.n_params, self.n_params))
+
+        # Off-diag
+        for i in range(self.n_teams):
+            for j in range(self.n_teams):
+                if i == j: continue # Handle diag elements next
+                wins = self.data.iloc[i, j]
+                losses = self.data.iloc[j, i]
+                pi_ij = self._calculate_prob(params[i], params[j])
+                hess[i, j] = (wins + losses) * pi_ij * (1 - pi_ij)
+
+        # Diag
+        for i in range(self.n_teams):
+            hess_ii = 0
+            for j in range(self.n_teams):
+                if i == j: continue # Teams don't play themselves
+                wins = self.data.iloc[i, j]
+                losses = self.data.iloc[j, i]
+                pi_ij = self._calculate_prob(params[i], params[j])
+                hess_ii += (wins + losses) * pi_ij * (1 - pi_ij)
+            
+            hess[i, i] = -hess_ii
+
+        return -hess
 
     def get_param(self, team: str) -> float:
         """Get a model parameter. For the VANBT model, this is just the team strengths.
