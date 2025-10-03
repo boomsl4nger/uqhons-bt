@@ -214,6 +214,9 @@ class BaseDyBT(BaseBradleyTerry):
             end_index = (t + 1) * self.n_teams
 
             self.params[start_index:end_index] -= np.min(self.params[start_index:end_index])
+
+    def _get_param_index(self, i, t) -> int:
+        return i + self.n_teams * t
     
     def get_times(self):
         """Get the names of the time blocks in the data. Usually should be years (ints)."""
@@ -239,8 +242,8 @@ class BaseDyBT(BaseBradleyTerry):
         self._check_fitted()
 
         # Reshape to (I x T) matrix format
-        # TODO account for HGA params in non-van models
-        ability_matrix = self.params.reshape(self.n_times, self.n_teams).T
+        n_strength_params = self.n_times * self.n_teams
+        ability_matrix = self.params[:n_strength_params].reshape(self.n_times, self.n_teams).T
 
         results_df = DataFrame(
             ability_matrix, 
