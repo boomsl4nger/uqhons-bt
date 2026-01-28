@@ -24,7 +24,6 @@ class BaseBradleyTerry():
         self.n_teams = None
         self.times = None
         self.n_times = None
-        self.n_levels = None
 
         # Model fit items
         self.constraint_team_idx = 0
@@ -176,6 +175,7 @@ class BaseBradleyTerry():
         # Finally, just set the zeroed parameter SE to zero itself
 
         # TODO might need to overwrite for static class but worry about this later
+        # TODO add hga params that don't get estimated (e.g. in TSI models) to remove list
         remove_idx = [self._get_strength_idx(self.constraint_team_idx, t) for t in range(self.n_times)]
         hess = self._hessian(self.params)
         hess_reduced = np.delete(np.delete(hess, remove_idx, axis=0), remove_idx, axis=1)
@@ -304,7 +304,72 @@ class BaseBradleyTerry():
     
 
 class BaseHierarchicalBT(BaseBradleyTerry):
-    pass
+    """Base class for Hierarchical Bradley-Terry models. Simply adds a `hierarchy` variable and
+    relevant getters to `BaseBradleyTerry` class.
+    """
+    def __init__(self):
+        super().__init__()
+        self.rel_mat = None
+        self.levels = None
+        self.n_levels = None
+
+    def fit(self, data: DataFrame, rel_mat, verbose: bool = False):
+        """Fit the Bradley-Terry model to the data. The model parameters are estimated by minimising
+        the negative log-likelihood. Currently uses the BFGS method, which requires the gradient of
+        the objective function, i.e., the (negative) score statistic.
+
+        See `_init_params()` for setting initial parameter vector.
+
+        Args:
+            data (DataFrame): Data for the model.
+            TODO
+            verbose (bool, optional): If true, prints convergence messages from `scipy.minimize()`.
+                Defaults to False.
+
+        Returns:
+            self: Fitted model.
+        """
+        # TODO maybe have method param, kwargs for passing options?
+        # TODO constrained optimisation for theta_1 = 0 (which gets rebased to theta_(1) = 0 later) 
+        # using the L-BFGS-B or similar
+
+        self._set_data(data, rel_mat)
+        initial_theta = self._init_params()
+
+        result = minimize(
+            fun = self._log_likelihood,
+            x0 = initial_theta,
+            method = "BFGS",
+            jac = self._score,
+            options = {"disp": verbose}
+        )
+
+        if result.success:
+            self.params = result.x
+            self.rebase_abilities()
+            self._fit_summary = result
+            self._hess_inv_fit_estimate = result.hess_inv
+            if verbose:
+                print("Successfully fit model parameters.\n")
+                print(self._fit_summary)
+        else:
+            print(f"Model fit error: {result.message}")
+
+        return self
+
+    def _get_hierarchy(self):
+        return self.rel_mat
+    
+    def get_levels(self):
+        return self.levels
+    
+    def get_n_levels(self):
+        return self.n_levels
+    
+    def get_relationship(self, i, j):
+        i_idx = self.teams.index(i)
+        j_idx = self.teams.index(j)
+        return self.rel_mat[i_idx][j_idx]
 
 
 ### TODO fix this up - change to assume single time block and remove things like rankings ###

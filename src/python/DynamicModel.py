@@ -142,7 +142,7 @@ class DyVANBT(BaseBradleyTerry):
 
 
 class DyCHABT(BaseBradleyTerry):
-    """Class for a dyanmic common home-ground advantage (CHA) Bradley-Terry model.
+    """Class for a dynamic common home-ground advantage (CHA) Bradley-Terry model.
 
     Parameters:
     - Team strengths `theta_{it}` for each team `i=1, ..., I` in each time block `t=1,...,T`.
@@ -374,7 +374,7 @@ class DyCHABT(BaseBradleyTerry):
 
 
 class DyTSABT(BaseBradleyTerry):
-    """Class for a dyanmic team-specific (TS) home-ground advantage (A) Bradley-Terry model.
+    """Class for a dynamic team-specific (TS) home-ground advantage (A) Bradley-Terry model.
 
     Parameters:
     - Team strengths `theta_{it}` for each team `i=1, ..., I` in each time block `t=1,...,T`.
@@ -608,6 +608,513 @@ class DyTSABT(BaseBradleyTerry):
     @staticmethod
     def _calculate_prob(it: float, jt: float, h: float) -> float:
         return expit(DyTSABT._calculate_odds(it, jt, h))
+
+    def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
+        return expit(self.get_odds(i, j, t, venue))
+
+
+class DyCHIBT(BaseHierarchicalBT):
+    """Class for a dynamic common hierarchical home-ground advantage (CHI) Bradley-Terry model.
+
+    Parameters:
+    - Team strengths `theta_{it}` for each team `i=1, ..., I` in each time block `t=1,...,T`.
+    - Common HGA `alpha_k` for each level `k=1,...,K` of the hierarchy.
+
+    Parameter vectorisation:
+    `[(i=1, t=1), (i=2, t=1), ..., (i=I, t=1), (i=1, t=2), ..., (i=I, t=T), alpha_1, ..., alpha_K]`
+    """
+    def _set_data(self, data: dict[int: DataFrame], rel_mat):
+        # TODO data validation function, check each matrix is right etc, check times make sense, better checking for names all same
+        # TODO allow for non-pandas data matrix types, ie, generic iterables
+        # Expecting: dict {year: {venue_type: win_matrix}}
+        if not isinstance(data, dict):
+            raise ValueError("Input 'data' must be a square DataFrame or dict of such.")
+        
+        self.data = data
+        self.teams = list(data.values())[0]["home"].columns.tolist()
+        self.n_teams = len(self.teams)
+        self.times = sorted(list(data.keys()))
+        self.n_times = len(self.times)
+        self.rel_mat = rel_mat
+        self.levels = np.unique(self.rel_mat).tolist()
+        self.n_levels = len(self.levels)
+        self.n_params = self.get_n_params()
+
+    def _log_likelihood(self, params: ndarray) -> float:
+        loglik = 0
+        for t, year in enumerate(self.times):
+            cur_year = self.data[year]
+            for i in range(self.n_teams):
+                for j in range(self.n_teams):
+                    if i == j: continue # Assume teams don't play themselves
+
+                    home_wins = cur_year["home"].iloc[i, j]
+                    away_wins = cur_year["away"].iloc[i, j]
+                    neut_wins = cur_year["neutral"].iloc[i, j]
+
+                    theta_it = params[self._get_strength_idx(i, t)]
+                    theta_jt = params[self._get_strength_idx(j, t)]
+                    # TODO add fn to get index from level name
+                    hga = params[self._get_hga_idx(int(self.rel_mat[i][j]))]
+                    i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
+                    i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
+                    i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
+
+                    loglik += home_wins * log(i_beats_j_home) + away_wins * log(i_beats_j_away) + neut_wins * log(i_beats_j_neut)
+
+        return -loglik
+
+    def _score(self, params: ndarray) -> ndarray:
+        score = np.zeros(self.n_params)
+        for t, year in enumerate(self.times):
+            cur_year = self.data[year]
+            for i in range(self.n_teams):
+                score_it = 0
+                for j in range(self.n_teams):
+                    if i == j: continue
+
+                    home_wins = cur_year["home"].iloc[i, j]
+                    home_loss = cur_year["home"].iloc[j, i]
+                    away_wins = cur_year["away"].iloc[i, j]
+                    away_loss = cur_year["away"].iloc[j, i]
+                    neut_wins = cur_year["neutral"].iloc[i, j]
+                    neut_loss = cur_year["neutral"].iloc[j, i]
+
+                    theta_it = params[self._get_strength_idx(i, t)]
+                    theta_jt = params[self._get_strength_idx(j, t)]
+                    hga = params[self._get_hga_idx(int(self.rel_mat[i][j]))]
+                    i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
+                    i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
+                    i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
+
+                    score_it += home_wins + away_wins + neut_wins \
+                    - (home_wins + away_loss) * i_beats_j_home \
+                    - (away_wins + home_loss) * i_beats_j_away \
+                    - (neut_wins + neut_loss) * i_beats_j_neut
+
+                score[self._get_strength_idx(i, t)] = score_it
+
+        # HGA terms
+        for k, level in enumerate(self.levels):
+            for t, year in enumerate(self.times):
+                cur_year = self.data[year]
+                for i in range(self.n_teams):
+                    for j in range(self.n_teams):
+                        if i == j: continue
+                        if self.rel_mat[i][j] != level: continue
+
+                        home_wins = cur_year["home"].iloc[i, j]
+                        away_wins = cur_year["away"].iloc[i, j]
+                        theta_it = params[self._get_strength_idx(i, t)]
+                        theta_jt = params[self._get_strength_idx(j, t)]
+                        hga = params[self._get_hga_idx(k)]
+                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
+                        i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
+
+                        score[self._get_hga_idx(k)] += home_wins * (1 - i_beats_j_home) - away_wins * (1 - i_beats_j_away)
+
+        return -score
+
+    def _hessian(self, params: ndarray) -> ndarray:
+        hess = np.zeros((self.n_params, self.n_params))
+
+        # Team strengths block
+        for t, year in enumerate(self.times):
+            cur_year = self.data[year]
+            for i in range(self.n_teams):
+                h_it_diag = 0
+                for j in range(self.n_teams):
+                    if i == j: continue
+
+                    home_wins = cur_year["home"].iloc[i, j]
+                    home_loss = cur_year["home"].iloc[j, i]
+                    away_wins = cur_year["away"].iloc[i, j]
+                    away_loss = cur_year["away"].iloc[j, i]
+                    neut_wins = cur_year["neutral"].iloc[i, j]
+                    neut_loss = cur_year["neutral"].iloc[j, i]
+
+                    theta_it = params[self._get_strength_idx(i, t)]
+                    theta_jt = params[self._get_strength_idx(j, t)]
+                    hga = params[self._get_hga_idx(int(self.rel_mat[i][j]))]
+                    i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
+                    i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
+                    i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
+
+                    # Off-diags
+                    h_it_jt = (home_wins + away_loss) * i_beats_j_home * (1-i_beats_j_home) \
+                    + (away_wins + home_loss) * i_beats_j_away * (1-i_beats_j_away) \
+                    + (neut_wins + neut_loss) * i_beats_j_neut * (1-i_beats_j_neut)
+                    hess[self._get_strength_idx(i, t), self._get_strength_idx(j, t)] = h_it_jt
+
+                    # Diag elements are negated sum of off-diag for each row...
+                    h_it_diag += h_it_jt
+                hess[self._get_strength_idx(i, t), self._get_strength_idx(i, t)] = -h_it_diag
+
+        # HGA terms
+        for k, level in enumerate(self.levels):
+            dummy = 0
+            for t, year in enumerate(self.times):
+                cur_year = self.data[year]
+                for i in range(self.n_teams):
+                    for j in range(self.n_teams):
+                        if i == j: continue
+                        if self.rel_mat[i][j] != level: continue
+
+                        home_wins = cur_year["home"].iloc[i, j]
+                        away_wins = cur_year["away"].iloc[i, j]
+
+                        theta_it = params[self._get_strength_idx(i, t)]
+                        theta_jt = params[self._get_strength_idx(j, t)]
+                        hga = params[self._get_hga_idx(k)]
+                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
+                        i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
+
+                        dummy += home_wins * i_beats_j_home * (1-i_beats_j_home) + away_wins * i_beats_j_away * (1-i_beats_j_away)
+            hess[self._get_hga_idx(k), self._get_hga_idx(k)] = -dummy
+
+        # Cross terms
+        for k, level in enumerate(self.levels):
+            for t, year in enumerate(self.times):
+                cur_year = self.data[year]
+                for i in range(self.n_teams):
+                    dummy = 0
+                    for j in range(self.n_teams):
+                        if i == j: continue
+                        if self.rel_mat[i][j] != level: continue
+
+                        home_wins = cur_year["home"].iloc[i, j]
+                        home_loss = cur_year["home"].iloc[j, i]
+                        away_wins = cur_year["away"].iloc[i, j]
+                        away_loss = cur_year["away"].iloc[j, i]
+
+                        theta_it = params[self._get_strength_idx(i, t)]
+                        theta_jt = params[self._get_strength_idx(j, t)]
+                        hga = params[self._get_hga_idx(k)]
+                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
+                        i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
+
+                        dummy += -(home_wins + away_loss) * i_beats_j_home * (1-i_beats_j_home) \
+                        + (away_wins + home_loss) * i_beats_j_away * (1-i_beats_j_away)
+                    hess[self._get_strength_idx(i, t), self._get_hga_idx(k)] = hess[self._get_hga_idx(k), self._get_strength_idx(i, t)] = dummy
+
+        return -hess
+
+    def get_param(self, param_type: str, team: str = None, time: str | int = None, level = None) -> float:
+        # TODO param_type should be one of [hga, strength]
+        """Get a model parameter. The CHABT model has team strengths in each time block and a common
+        home-ground advantage effect.
+
+        Args:
+            param_type (str): `"strength"` for team strength; `"hga"` for home-ground advantage.
+            team (str, optional): Name of team. Default to None.
+            time (str | int, optional): Name of time block. Default to None.
+
+        Returns:
+            float: Parameter value.
+        """
+        self._check_fitted()
+
+        if param_type == "strength":
+            try:
+                team_idx = self.teams.index(team)
+                time_idx = self.times.index(time)
+                index = self._get_strength_idx(team_idx, time_idx)
+            except ValueError:
+                print(f"Team '{team}' or time '{time}' not found in the model.")
+                raise
+        elif param_type == "hga":
+            try:
+                level_idx = self.teams.index(level)
+                index = self._get_hga_idx(level_idx)
+            except ValueError:
+                print(f"Team '{team}' not found in the model.")
+        else:
+            raise ValueError(f"Parameter type {param_type} is invalid. See docstring.")
+
+        return self.params[index]
+    
+    def _get_hga_idx(self, k: int):
+        return self.n_teams * self.n_times + k
+
+    def get_n_params(self) -> int:
+        return self.n_teams * self.n_times + self.n_levels
+    
+    def summary(self) -> str:
+        return super().summary()
+    
+    @staticmethod
+    def _calculate_odds(it: float, jt: float, h: float) -> float:
+        return it - jt + h
+
+    def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
+        # TODO venue must be one of [home, away, neutral]
+        venue_map = {"home": 1, "neutral": 0, "away": -1}
+        k = self.rel_mat[i][j]
+        hga = self._get_hga_idx(k) * venue_map[venue]
+        return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
+    
+    @staticmethod
+    def _calculate_prob(it: float, jt: float, h: float) -> float:
+        return expit(DyCHABT._calculate_odds(it, jt, h))
+
+    def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
+        return expit(self.get_odds(i, j, t, venue))
+
+
+class DyTSIBT(BaseHierarchicalBT):
+    """Class for a dyanmic team-specific hierarchical home-ground advantage (TSI) Bradley-Terry model.
+
+    Parameters:
+    - Team strengths `theta_{it}` for each team `i=1, ..., I` in each time block `t=1,...,T`.
+    - Team-specific HGA `alpha_{ik}` for each level `k=1,...,K` of the hierarchy.
+
+    Parameter vectorisation:
+    `[
+        (i=1, t=1), (i=2, t=1), ..., (i=I, t=1), (i=1, t=2), ..., (i=I, t=T), 
+        alpha_11, ..., alpha_I1, alpha_12, ..., alpha_I2, ..., alpha_1K, ..., alpha_IK
+    ]`
+    """
+    def _set_data(self, data: dict[int: DataFrame], rel_mat):
+        # TODO data validation function, check each matrix is right etc, check times make sense, better checking for names all same
+        # TODO allow for non-pandas data matrix types, ie, generic iterables
+        # Expecting: dict {year: {venue_type: win_matrix}}
+        if not isinstance(data, dict):
+            raise ValueError("Input 'data' must be a square DataFrame or dict of such.")
+        
+        self.data = data
+        self.teams = list(data.values())[0]["home"].columns.tolist()
+        self.n_teams = len(self.teams)
+        self.times = sorted(list(data.keys()))
+        self.n_times = len(self.times)
+        self.rel_mat = rel_mat
+        self.levels = np.unique(self.rel_mat).tolist()
+        self.n_levels = len(self.levels)
+        self.n_params = self.get_n_params()
+
+    def _log_likelihood(self, params: ndarray) -> float:
+        loglik = 0
+        for t, year in enumerate(self.times):
+            cur_year = self.data[year]
+            for i in range(self.n_teams):
+                for j in range(self.n_teams):
+                    if i == j: continue # Assume teams don't play themselves
+
+                    home_wins = cur_year["home"].iloc[i, j]
+                    away_wins = cur_year["away"].iloc[i, j]
+                    neut_wins = cur_year["neutral"].iloc[i, j]
+
+                    theta_it = params[self._get_strength_idx(i, t)]
+                    theta_jt = params[self._get_strength_idx(j, t)]
+                    # TODO add fn to get index from level name
+                    r_ij = int(self.rel_mat[i][j])
+                    hga_i = params[self._get_hga_idx(i, r_ij)]
+                    hga_j = params[self._get_hga_idx(j, r_ij)]
+                    i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
+                    i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga_j)
+                    i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
+
+                    loglik += home_wins * log(i_beats_j_home) + away_wins * log(i_beats_j_away) + neut_wins * log(i_beats_j_neut)
+
+        return -loglik
+
+    def _score(self, params: ndarray) -> ndarray:
+        score = np.zeros(self.n_params)
+        for t, year in enumerate(self.times):
+            cur_year = self.data[year]
+            for i in range(self.n_teams):
+                score_it = 0
+                for j in range(self.n_teams):
+                    if i == j: continue
+
+                    home_wins = cur_year["home"].iloc[i, j]
+                    home_loss = cur_year["home"].iloc[j, i]
+                    away_wins = cur_year["away"].iloc[i, j]
+                    away_loss = cur_year["away"].iloc[j, i]
+                    neut_wins = cur_year["neutral"].iloc[i, j]
+                    neut_loss = cur_year["neutral"].iloc[j, i]
+
+                    theta_it = params[self._get_strength_idx(i, t)]
+                    theta_jt = params[self._get_strength_idx(j, t)]
+                    r_ij = int(self.rel_mat[i][j])
+                    hga_i = params[self._get_hga_idx(i, r_ij)]
+                    hga_j = params[self._get_hga_idx(j, r_ij)]
+                    i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
+                    i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga_j)
+                    i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
+
+                    score_it += home_wins + away_wins + neut_wins \
+                    - (home_wins + away_loss) * i_beats_j_home \
+                    - (away_wins + home_loss) * i_beats_j_away \
+                    - (neut_wins + neut_loss) * i_beats_j_neut
+
+                score[self._get_strength_idx(i, t)] = score_it
+
+        # HGA terms
+        for k, level in enumerate(self.levels):
+            for i in range(self.n_teams):
+                score_hi = 0
+                for t, year in enumerate(self.times):
+                    cur_year = self.data[year]
+                    for j in range(self.n_teams):
+                        if i == j: continue
+                        if self.rel_mat[i][j] != level: continue
+
+                        home_wins = cur_year["home"].iloc[i, j]
+                        away_loss = cur_year["away"].iloc[j, i]
+                        theta_it = params[self._get_strength_idx(i, t)]
+                        theta_jt = params[self._get_strength_idx(j, t)]
+                        hga_i = params[self._get_hga_idx(i, k)]
+                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
+                        
+                        score_hi += home_wins - (home_wins + away_loss) * i_beats_j_home
+
+                score[self._get_hga_idx(i, k)] = score_hi
+
+        return -score
+
+    def _hessian(self, params: ndarray) -> ndarray:
+        hess = np.zeros((self.n_params, self.n_params))
+
+        # Team strengths block
+        for t, year in enumerate(self.times):
+            cur_year = self.data[year]
+            for i in range(self.n_teams):
+                h_it_diag = 0
+                for j in range(self.n_teams):
+                    if i == j: continue
+
+                    home_wins = cur_year["home"].iloc[i, j]
+                    home_loss = cur_year["home"].iloc[j, i]
+                    away_wins = cur_year["away"].iloc[i, j]
+                    away_loss = cur_year["away"].iloc[j, i]
+                    neut_wins = cur_year["neutral"].iloc[i, j]
+                    neut_loss = cur_year["neutral"].iloc[j, i]
+
+                    theta_it = params[self._get_strength_idx(i, t)]
+                    theta_jt = params[self._get_strength_idx(j, t)]
+                    r_ij = int(self.rel_mat[i][j])
+                    hga_i = params[self._get_hga_idx(i, r_ij)]
+                    hga_j = params[self._get_hga_idx(j, r_ij)]
+                    i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
+                    i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga_j)
+                    i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
+
+                    # Off-diags
+                    h_it_jt = (home_wins + away_loss) * i_beats_j_home * (1-i_beats_j_home) \
+                    + (away_wins + home_loss) * i_beats_j_away * (1-i_beats_j_away) \
+                    + (neut_wins + neut_loss) * i_beats_j_neut * (1-i_beats_j_neut)
+                    hess[self._get_strength_idx(i, t), self._get_strength_idx(j, t)] = h_it_jt
+
+                    # Diag elements are negated sum of off-diag for each row...
+                    h_it_diag += h_it_jt
+                hess[self._get_strength_idx(i, t), self._get_strength_idx(i, t)] = -h_it_diag
+
+        # HGA terms
+        for k, level in enumerate(self.levels):
+            for i in range(self.n_teams):
+                dummy = 0
+                for t, year in enumerate(self.times):
+                    cur_year = self.data[year]
+                    for j in range(self.n_teams):
+                        if i == j: continue
+                        if self.rel_mat[i][j] != level: continue
+
+                        home_wins = cur_year["home"].iloc[i, j]
+                        away_loss = cur_year["away"].iloc[j, i]
+
+                        theta_it = params[self._get_strength_idx(i, t)]
+                        theta_jt = params[self._get_strength_idx(j, t)]
+                        hga_i = params[self._get_hga_idx(i, k)]
+                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
+
+                        dummy += (home_wins + away_loss) * i_beats_j_home * (1-i_beats_j_home)
+                hess[self._get_hga_idx(i, k), self._get_hga_idx(i, k)] = -dummy
+
+        # Cross terms
+        for k, level in enumerate(self.levels):
+            for i in range(self.n_teams):
+                for t, year in enumerate(self.times):
+                    cur_year = self.data[year]
+                    dummy = 0
+                    for j in range(self.n_teams):
+                        if i == j: continue
+                        if self.rel_mat[i][j] != level: continue
+
+                        home_wins = cur_year["home"].iloc[i, j]
+                        home_loss = cur_year["home"].iloc[j, i]
+                        away_wins = cur_year["away"].iloc[i, j]
+                        away_loss = cur_year["away"].iloc[j, i]
+
+                        theta_it = params[self._get_strength_idx(i, t)]
+                        theta_jt = params[self._get_strength_idx(j, t)]
+                        hga_i = params[self._get_hga_idx(i, k)]
+                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
+
+                        dummy_2 = (home_wins + away_loss) * i_beats_j_home * (1-i_beats_j_home)
+                        dummy += dummy_2
+                        hess[self._get_strength_idx(j, t), self._get_hga_idx(i, k)] = hess[self._get_hga_idx(i, k), self._get_strength_idx(j, t)] = dummy_2
+                    hess[self._get_strength_idx(i, t), self._get_hga_idx(i, k)] = hess[self._get_hga_idx(i, k), self._get_strength_idx(i, t)] = -dummy
+
+        return -hess
+
+    def get_param(self, param_type: str, team: str = None, time: str | int = None, level = None) -> float:
+        # TODO param_type should be one of [hga, strength]
+        """Get a model parameter. The CHABT model has team strengths in each time block and a common
+        home-ground advantage effect.
+
+        Args:
+            param_type (str): `"strength"` for team strength; `"hga"` for home-ground advantage.
+            team (str, optional): Name of team. Default to None.
+            time (str | int, optional): Name of time block. Default to None.
+
+        Returns:
+            float: Parameter value.
+        """
+        self._check_fitted()
+
+        if param_type == "strength":
+            try:
+                team_idx = self.teams.index(team)
+                time_idx = self.times.index(time)
+                index = self._get_strength_idx(team_idx, time_idx)
+            except ValueError:
+                print(f"Team '{team}' or time '{time}' not found in the model.")
+                raise
+        elif param_type == "hga":
+            try:
+                team_idx = self.teams.index(team)
+                level_idx = self.teams.index(level)
+                index = self._get_hga_idx(team_idx, level_idx)
+            except ValueError:
+                print(f"Team '{team}' not found in the model.")
+        else:
+            raise ValueError(f"Parameter type {param_type} is invalid. See docstring.")
+
+        return self.params[index]
+    
+    def _get_hga_idx(self, i: int, k: int):
+        return self.n_teams * self.n_times + i + self.n_teams * k
+
+    def get_n_params(self) -> int:
+        return self.n_teams * self.n_times + self.n_teams * self.n_levels
+    
+    def summary(self) -> str:
+        return super().summary()
+    
+    @staticmethod
+    def _calculate_odds(it: float, jt: float, h: float) -> float:
+        return it - jt + h
+
+    def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
+        # TODO venue must be one of [home, away, neutral]
+        k = self.rel_mat[i][j]
+        venue_map = {"home": self.get_param("hga", team=i, level=k), "neutral": 0, "away": -self.get_param("hga", team=j, level=k)}
+        hga = venue_map[venue]
+        return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
+    
+    @staticmethod
+    def _calculate_prob(it: float, jt: float, h: float) -> float:
+        return expit(DyCHABT._calculate_odds(it, jt, h))
 
     def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
         return expit(self.get_odds(i, j, t, venue))
