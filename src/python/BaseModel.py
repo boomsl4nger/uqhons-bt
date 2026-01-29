@@ -6,13 +6,14 @@ from scipy.optimize import minimize
 # TODO make abstract base class
 # TODO consider staticmethods (LLH, odds, prob)
 # TODO naming for odds (when it's actually log-odds)
-# TODO swap static to be a child of dynamic with n_times=1
 # TODO type hint fields? eg self.data: dict, self.teams: list
 # TODO enum for things like venue types
+# TODO consider making a wrapper for static models
 class BaseBradleyTerry():
     """Abstract base class for our Bradley-Terry models. Mainly specifies the methods that each 
     model will need to implement, primarily the log-likelihood function.
     """
+    venue_keys = {"home", "away", "neutral"}
 
     def __init__(self):
         """Initialise a Bradley-Terry model. Simply sets all fields to None. Setting should be done
@@ -20,6 +21,7 @@ class BaseBradleyTerry():
         """
         # Dataset characteristics
         self.data = None
+        self.n_obs = None
         self.teams = None
         self.n_teams = None
         self.times = None
@@ -30,12 +32,77 @@ class BaseBradleyTerry():
         self.params = None
         self.n_params = None
         self._fit_summary = None
-        self._hess_inv_fit_estimate = None
         self._hess_inv = None
         self.errors = None
 
-    def _set_data(self, data):
-        raise NotImplementedError()
+    def _set_data(self, data: dict):
+        """Validate and set data-related parameters.
+        Expected data structure is a dictionary with time block names as keys and win matrices as values.
+        Currently expecting the win matrices to be pandas DataFrames with team names as column names.
+        If using a HGA, we expect a nested dict with the venue types `"home", "away", "neutral"`.
+        - Vanilla model: `{time: DataFrame}`
+        - HGA models: `{time: {venue: DataFrame}}`
+
+        Args:
+            data (dict): Input competition data. Format depends on model type (see above).
+        """
+        self._validate_data(data)
+        self.data = data
+        self._finalise_params()
+
+    def _validate_data(self, data: dict):
+        """Validate a given data structure of win matrices. See `_set_data`."""
+        # TODO think about allowing non-pandas win matrix types (eg 2D numpy arrays)
+        if not isinstance(data, dict):
+            raise ValueError("Input 'data' must be a dictionary keyed by time blocks.")
+
+        # Extract time blocks
+        self.times = sorted(data)
+        self.n_times = len(self.times)
+
+        first = data[self.times[0]]
+
+        if self.venue_keys is None: # Vanilla model
+            if not isinstance(first, DataFrame):
+                raise ValueError(f"{self.__class__.__name__} requires {{time: DataFrame}} structure.")
+            ref_df = first
+        else:                       # HGA models
+            if not (isinstance(first, dict) and "home" in first):
+                raise ValueError(f"{self.__class__.__name__} requires "f"{{time: {{venue: DataFrame}}}} structure.")
+            ref_df = first["home"]
+
+        self.teams = list(ref_df.columns)
+        self.n_teams = len(self.teams)
+
+        def iter_matrices(block, t):
+            if self.venue_keys is None:
+                return (block,)
+            if set(block) != self.venue_keys:
+                raise ValueError(f"Time {t} must contain keys {self.venue_keys}, got {set(block)}")
+            return block.values()
+
+        # Data validation loop
+        for t in self.times:
+            for df in iter_matrices(data[t], t):
+                # Check is DataFrame
+                if not isinstance(df, DataFrame):
+                    raise ValueError(f"Matrix in time block {t} is not a DataFrame.")
+
+                # Check square matrix
+                if df.shape[0] != df.shape[1]:
+                    raise ValueError(f"Matrix in time block {t} is not square: {df.shape}")
+                
+                # Check team names are all equal across dfs
+                if not (df.columns.equals(ref_df.columns) and df.index.equals(ref_df.index)):
+                    raise ValueError(f"Team mismatch in time block {t}.")
+                
+                # Check win counts are non-negative
+                if (df.values < 0).any():
+                    raise ValueError(f"Negative values detected in time block {t}.")
+                
+    def _finalise_params(self):
+        """Default setting number of parameters."""
+        self.n_params = self.get_n_params()
 
     def _init_params(self) -> ndarray:
         """Initialise model parameters for fitting. Currently just using a zero vector for all
@@ -53,8 +120,7 @@ class BaseBradleyTerry():
             bool: True if the model parameters have been fit.
         """
         if self.params is None:
-            print(f"Error: model parameters are not fitted.")
-            raise # TODO better way to do this?
+            raise RuntimeError("Model parameters are not yet fitted.")
 
         return True
 
@@ -125,7 +191,6 @@ class BaseBradleyTerry():
             self.params = result.x
             self.rebase_abilities()
             self._fit_summary = result
-            self._hess_inv_fit_estimate = result.hess_inv
             if verbose:
                 print("Successfully fit model parameters.\n")
                 print(self._fit_summary)
@@ -313,6 +378,28 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         self.levels = None
         self.n_levels = None
 
+    def _set_data(self, data: dict, rel_mat: DataFrame):
+        self.rel_mat = rel_mat
+        super()._set_data(data)
+
+    def _validate_rel_mat(self):
+        """Validate the relationship matrix, which must have been set already to `self.rel_mat`"""
+        # Check square matrix
+        if self.rel_mat.shape != (self.n_teams, self.n_teams):
+            raise ValueError(f"rel_mat must be {self.n_teams}×{self.n_teams}, got {self.rel_mat.shape}")
+        
+        # Check symmetric
+        if not (self.rel_mat.values == self.rel_mat.values.T).all():
+            raise ValueError("rel_mat must be symmetric.")
+    
+    def _finalise_params(self):
+        """Finishes extracting hierarchical model-specific params after general params are set."""
+        # Validate the relationship matrix AFTER the other params have been set
+        self._validate_rel_mat()
+        self.levels = np.unique(self.rel_mat).tolist()
+        self.n_levels = len(self.levels)
+        super()._finalise_params()
+
     def fit(self, data: DataFrame, rel_mat, verbose: bool = False):
         """Fit the Bradley-Terry model to the data. The model parameters are estimated by minimising
         the negative log-likelihood. Currently uses the BFGS method, which requires the gradient of
@@ -348,7 +435,6 @@ class BaseHierarchicalBT(BaseBradleyTerry):
             self.params = result.x
             self.rebase_abilities()
             self._fit_summary = result
-            self._hess_inv_fit_estimate = result.hess_inv
             if verbose:
                 print("Successfully fit model parameters.\n")
                 print(self._fit_summary)
@@ -370,37 +456,3 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         i_idx = self.teams.index(i)
         j_idx = self.teams.index(j)
         return self.rel_mat[i_idx][j_idx]
-
-
-### TODO fix this up - change to assume single time block and remove things like rankings ###
-# class StaticBT(BaseBradleyTerry):
-#     """Abstract base class for a Dynamic Bradley-Terry model. This is specifically for our discrete
-#     dynamic models, where each team has a different strength for each time block (year) in the data,
-#     as well as whatever additional order effects are being modelled (e.g. HFA).
-#     """
-#     def __init__(self):
-#         super().__init__()
-#         self.times = None
-#         self.n_times = None
-
-#     def _rebase_abilities(self):
-#         """For the static Bradley-Terry models, we assume that the team strength parameters are the 
-#         first `I` elements in the parameter array, where `I` is the number of teams.
-#         """
-#         self._check_fitted()
-#         self.params[0:self.n_teams] -= np.min(self.params[0:self.n_teams])
-
-#     def get_ranking(self):
-#         """Get the ranking of teams based on their estimated strengths, in descending order. Note
-#         that the 'worst' team will have zero strength for identifiability.
-
-#         Returns:
-#             DataFrame: Sorted tuples of team name and estimated strength.
-#         """
-#         self._check_fitted()
-#         dummy = {"Ability": self.params[0:self.n_teams]}
-#         if self.errors is not None: # TODO just move this to summary fn, no errors in ranking...
-#             dummy["Error"] = self.errors[0:self.n_teams]
-
-#         df = DataFrame(dummy, index=self.teams)
-#         return df.sort_values(by="Ability", ascending=False).reset_index(names="Teams")

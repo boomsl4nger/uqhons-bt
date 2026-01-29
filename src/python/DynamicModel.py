@@ -6,6 +6,7 @@ from scipy.special import expit
 from BaseModel import BaseBradleyTerry, BaseHierarchicalBT
 
 # TODO handle teams coming in and out of data each year -> requirements for mats, etc
+# TODO look into sparse matrices for data (and justify)
 class VANBT(BaseBradleyTerry):
     """Class for a dyanmic 'vanilla' (VAN) Bradley-Terry model.
 
@@ -15,20 +16,7 @@ class VANBT(BaseBradleyTerry):
     Parameter vectorisation:
     `[(i=1, t=1), (i=2, t=1), ..., (i=I, t=1), (i=1, t=2), ..., (i=I, t=T)]`
     """
-    def _set_data(self, data: dict[int: DataFrame]):
-        # TODO docstring
-        # TODO data validation, check each matrix is right etc, check times make sense, better checking for names all same
-        # TODO allow for non-pandas data matrix types, ie, generic iterables
-        # Expecting: dict {year: win_matrix}
-        if not isinstance(data, dict):
-            raise ValueError("Input 'data' must be a square DataFrame or dict of such.")
-        
-        self.data = data
-        self.teams = list(data.values())[0].columns.tolist()
-        self.n_teams = len(self.teams)
-        self.times = sorted(list(data.keys()))
-        self.n_times = len(self.times)
-        self.n_params = self.get_n_params()
+    venue_keys = None
 
     def _log_likelihood(self, params: ndarray) -> float:
         # TODO think about using team names w/ .loc? is this handled enough in _set_data? what about the times then (needed for dict)?
@@ -150,20 +138,6 @@ class CHABT(BaseBradleyTerry):
     Parameter vectorisation:
     `[(i=1, t=1), (i=2, t=1), ..., (i=I, t=1), (i=1, t=2), ..., (i=I, t=T), alpha]`
     """
-    def _set_data(self, data: dict[int: DataFrame]):
-        # TODO data validation function, check each matrix is right etc, check times make sense, better checking for names all same
-        # TODO allow for non-pandas data matrix types, ie, generic iterables
-        # Expecting: dict {year: {venue_type: win_matrix}}
-        if not isinstance(data, dict):
-            raise ValueError("Input 'data' must be a square DataFrame or dict of such.")
-        
-        self.data = data
-        self.teams = list(data.values())[0]["home"].columns.tolist()
-        self.n_teams = len(self.teams)
-        self.times = sorted(list(data.keys()))
-        self.n_times = len(self.times)
-        self.n_params = self.get_n_params()
-
     def _log_likelihood(self, params: ndarray) -> float:
         loglik = 0
         for t, year in enumerate(self.times):
@@ -382,20 +356,6 @@ class TSABT(BaseBradleyTerry):
     Parameter vectorisation:
     `[(i=1, t=1), (i=2, t=1), ..., (i=I, t=1), (i=1, t=2), ..., (i=I, t=T), a_1, ..., a_I]`
     """
-    def _set_data(self, data: dict[int: DataFrame]):
-        # TODO data validation function, check each matrix is right etc, check times make sense, better checking for names all same
-        # TODO allow for non-pandas data matrix types, ie, generic iterables
-        # Expecting: dict {year: {venue_type: win_matrix}}
-        if not isinstance(data, dict):
-            raise ValueError("Input 'data' must be a square DataFrame or dict of such.")
-        
-        self.data = data
-        self.teams = list(data.values())[0]["home"].columns.tolist()
-        self.n_teams = len(self.teams)
-        self.times = sorted(list(data.keys()))
-        self.n_times = len(self.times)
-        self.n_params = self.get_n_params()
-
     def _log_likelihood(self, params: ndarray) -> float:
         # TODO just call the chabt llh fn but ensure that the prob calcs are called correctly
         loglik = 0
@@ -622,23 +582,6 @@ class CHIBT(BaseHierarchicalBT):
     Parameter vectorisation:
     `[(i=1, t=1), (i=2, t=1), ..., (i=I, t=1), (i=1, t=2), ..., (i=I, t=T), alpha_1, ..., alpha_K]`
     """
-    def _set_data(self, data: dict[int: DataFrame], rel_mat):
-        # TODO data validation function, check each matrix is right etc, check times make sense, better checking for names all same
-        # TODO allow for non-pandas data matrix types, ie, generic iterables
-        # Expecting: dict {year: {venue_type: win_matrix}}
-        if not isinstance(data, dict):
-            raise ValueError("Input 'data' must be a square DataFrame or dict of such.")
-        
-        self.data = data
-        self.teams = list(data.values())[0]["home"].columns.tolist()
-        self.n_teams = len(self.teams)
-        self.times = sorted(list(data.keys()))
-        self.n_times = len(self.times)
-        self.rel_mat = rel_mat
-        self.levels = np.unique(self.rel_mat).tolist()
-        self.n_levels = len(self.levels)
-        self.n_params = self.get_n_params()
-
     def _log_likelihood(self, params: ndarray) -> float:
         loglik = 0
         for t, year in enumerate(self.times):
@@ -654,7 +597,7 @@ class CHIBT(BaseHierarchicalBT):
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
                     # TODO add fn to get index from level name
-                    hga = params[self._get_hga_idx(int(self.rel_mat[i][j]))]
+                    hga = params[self._get_hga_idx(int(self.rel_mat.iloc[i, j]))]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
                     i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
                     i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
@@ -681,7 +624,7 @@ class CHIBT(BaseHierarchicalBT):
 
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    hga = params[self._get_hga_idx(int(self.rel_mat[i][j]))]
+                    hga = params[self._get_hga_idx(int(self.rel_mat.iloc[i, j]))]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
                     i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
                     i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
@@ -700,7 +643,7 @@ class CHIBT(BaseHierarchicalBT):
                 for i in range(self.n_teams):
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat[i][j] != level: continue
+                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         away_wins = cur_year["away"].iloc[i, j]
@@ -734,7 +677,7 @@ class CHIBT(BaseHierarchicalBT):
 
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    hga = params[self._get_hga_idx(int(self.rel_mat[i][j]))]
+                    hga = params[self._get_hga_idx(int(self.rel_mat.iloc[i, j]))]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
                     i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
                     i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
@@ -757,7 +700,7 @@ class CHIBT(BaseHierarchicalBT):
                 for i in range(self.n_teams):
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat[i][j] != level: continue
+                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         away_wins = cur_year["away"].iloc[i, j]
@@ -779,7 +722,7 @@ class CHIBT(BaseHierarchicalBT):
                     dummy = 0
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat[i][j] != level: continue
+                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         home_loss = cur_year["home"].iloc[j, i]
@@ -848,7 +791,7 @@ class CHIBT(BaseHierarchicalBT):
     def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
         # TODO venue must be one of [home, away, neutral]
         venue_map = {"home": 1, "neutral": 0, "away": -1}
-        k = self.rel_mat[i][j]
+        k = self.rel_mat.iloc[i, j]
         hga = self._get_hga_idx(k) * venue_map[venue]
         return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
     
@@ -873,23 +816,6 @@ class TSIBT(BaseHierarchicalBT):
         alpha_11, ..., alpha_I1, alpha_12, ..., alpha_I2, ..., alpha_1K, ..., alpha_IK
     ]`
     """
-    def _set_data(self, data: dict[int: DataFrame], rel_mat):
-        # TODO data validation function, check each matrix is right etc, check times make sense, better checking for names all same
-        # TODO allow for non-pandas data matrix types, ie, generic iterables
-        # Expecting: dict {year: {venue_type: win_matrix}}
-        if not isinstance(data, dict):
-            raise ValueError("Input 'data' must be a square DataFrame or dict of such.")
-        
-        self.data = data
-        self.teams = list(data.values())[0]["home"].columns.tolist()
-        self.n_teams = len(self.teams)
-        self.times = sorted(list(data.keys()))
-        self.n_times = len(self.times)
-        self.rel_mat = rel_mat
-        self.levels = np.unique(self.rel_mat).tolist()
-        self.n_levels = len(self.levels)
-        self.n_params = self.get_n_params()
-
     def _log_likelihood(self, params: ndarray) -> float:
         loglik = 0
         for t, year in enumerate(self.times):
@@ -905,7 +831,7 @@ class TSIBT(BaseHierarchicalBT):
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
                     # TODO add fn to get index from level name
-                    r_ij = int(self.rel_mat[i][j])
+                    r_ij = int(self.rel_mat.iloc[i, j])
                     hga_i = params[self._get_hga_idx(i, r_ij)]
                     hga_j = params[self._get_hga_idx(j, r_ij)]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
@@ -934,7 +860,7 @@ class TSIBT(BaseHierarchicalBT):
 
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    r_ij = int(self.rel_mat[i][j])
+                    r_ij = int(self.rel_mat.iloc[i, j])
                     hga_i = params[self._get_hga_idx(i, r_ij)]
                     hga_j = params[self._get_hga_idx(j, r_ij)]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
@@ -956,7 +882,7 @@ class TSIBT(BaseHierarchicalBT):
                     cur_year = self.data[year]
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat[i][j] != level: continue
+                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         away_loss = cur_year["away"].iloc[j, i]
@@ -991,7 +917,7 @@ class TSIBT(BaseHierarchicalBT):
 
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    r_ij = int(self.rel_mat[i][j])
+                    r_ij = int(self.rel_mat.iloc[i, j])
                     hga_i = params[self._get_hga_idx(i, r_ij)]
                     hga_j = params[self._get_hga_idx(j, r_ij)]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_i)
@@ -1016,7 +942,7 @@ class TSIBT(BaseHierarchicalBT):
                     cur_year = self.data[year]
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat[i][j] != level: continue
+                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         away_loss = cur_year["away"].iloc[j, i]
@@ -1037,7 +963,7 @@ class TSIBT(BaseHierarchicalBT):
                     dummy = 0
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat[i][j] != level: continue
+                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         home_loss = cur_year["home"].iloc[j, i]
@@ -1106,7 +1032,7 @@ class TSIBT(BaseHierarchicalBT):
 
     def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
         # TODO venue must be one of [home, away, neutral]
-        k = self.rel_mat[i][j]
+        k = self.rel_mat.iloc[i, j]
         venue_map = {"home": self.get_param("hga", team=i, level=k), "neutral": 0, "away": -self.get_param("hga", team=j, level=k)}
         hga = venue_map[venue]
         return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
