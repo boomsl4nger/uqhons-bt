@@ -21,7 +21,7 @@ class BaseBradleyTerry():
         """
         # Dataset characteristics
         self.data = None
-        self.n_obs = None
+        self.n_obs = 0
         self.teams = None
         self.n_teams = None
         self.times = None
@@ -99,6 +99,8 @@ class BaseBradleyTerry():
                 # Check win counts are non-negative
                 if (df.values < 0).any():
                     raise ValueError(f"Negative values detected in time block {t}.")
+                
+                self.n_obs += df.to_numpy().sum()
                 
     def _finalise_params(self):
         """Default setting number of parameters."""

@@ -1,5 +1,3 @@
-# TODO make nestedness checker for time axis and combinations of such
-
 from numpy import log
 from scipy.stats import chi2
 
@@ -92,7 +90,7 @@ def is_nested(m1: BaseBradleyTerry, m2: BaseBradleyTerry) -> bool:
 
     return time_nested and struct_nested and is_not_identical
 
-def simple_report(m1: BaseBradleyTerry, m2: BaseBradleyTerry, n: int):
+def simple_report(m1: BaseBradleyTerry, m2: BaseBradleyTerry):
     """Run a basic test suite for two given BT models.
 
     Args:
@@ -113,13 +111,13 @@ def simple_report(m1: BaseBradleyTerry, m2: BaseBradleyTerry, n: int):
             "name": m1.__class__.__name__,
             "n_times": m1.n_times,
             "aic": calculate_aic(m1_nll, m1_k), 
-            "bic": calculate_bic(m1_nll, m1_k, n)
+            "bic": calculate_bic(m1_nll, m1_k, m1.n_obs)
         },
         "m2": {
             "name": m2.__class__.__name__,
             "n_times": m2.n_times,
             "aic": calculate_aic(m2_nll, m2_k), 
-            "bic": calculate_bic(m2_nll, m2_k, n)
+            "bic": calculate_bic(m2_nll, m2_k, m2.n_obs)
         },
     }
     
