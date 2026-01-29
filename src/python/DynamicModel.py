@@ -6,8 +6,7 @@ from scipy.special import expit
 from BaseModel import BaseBradleyTerry, BaseHierarchicalBT
 
 # TODO handle teams coming in and out of data each year -> requirements for mats, etc
-# TODO change name to VANBT and remove static class(es)
-class DyVANBT(BaseBradleyTerry):
+class VANBT(BaseBradleyTerry):
     """Class for a dyanmic 'vanilla' (VAN) Bradley-Terry model.
 
     Parameters:
@@ -135,13 +134,13 @@ class DyVANBT(BaseBradleyTerry):
     
     @staticmethod
     def _calculate_prob(it: float, jt: float) -> float:
-        return expit(DyVANBT._calculate_odds(it, jt))
+        return expit(VANBT._calculate_odds(it, jt))
 
     def get_prob(self, i: str | int, j: str | int, t: str | int) -> float:
         return expit(self.get_odds(i, j, t))
 
 
-class DyCHABT(BaseBradleyTerry):
+class CHABT(BaseBradleyTerry):
     """Class for a dynamic common home-ground advantage (CHA) Bradley-Terry model.
 
     Parameters:
@@ -367,13 +366,13 @@ class DyCHABT(BaseBradleyTerry):
     
     @staticmethod
     def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(DyCHABT._calculate_odds(it, jt, h))
+        return expit(CHABT._calculate_odds(it, jt, h))
 
     def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
         return expit(self.get_odds(i, j, t, venue))
 
 
-class DyTSABT(BaseBradleyTerry):
+class TSABT(BaseBradleyTerry):
     """Class for a dynamic team-specific (TS) home-ground advantage (A) Bradley-Terry model.
 
     Parameters:
@@ -607,13 +606,13 @@ class DyTSABT(BaseBradleyTerry):
     
     @staticmethod
     def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(DyTSABT._calculate_odds(it, jt, h))
+        return expit(TSABT._calculate_odds(it, jt, h))
 
     def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
         return expit(self.get_odds(i, j, t, venue))
 
 
-class DyCHIBT(BaseHierarchicalBT):
+class CHIBT(BaseHierarchicalBT):
     """Class for a dynamic common hierarchical home-ground advantage (CHI) Bradley-Terry model.
 
     Parameters:
@@ -855,13 +854,13 @@ class DyCHIBT(BaseHierarchicalBT):
     
     @staticmethod
     def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(DyCHABT._calculate_odds(it, jt, h))
+        return expit(CHABT._calculate_odds(it, jt, h))
 
     def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
         return expit(self.get_odds(i, j, t, venue))
 
 
-class DyTSIBT(BaseHierarchicalBT):
+class TSIBT(BaseHierarchicalBT):
     """Class for a dyanmic team-specific hierarchical home-ground advantage (TSI) Bradley-Terry model.
 
     Parameters:
@@ -1114,7 +1113,7 @@ class DyTSIBT(BaseHierarchicalBT):
     
     @staticmethod
     def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(DyCHABT._calculate_odds(it, jt, h))
+        return expit(CHABT._calculate_odds(it, jt, h))
 
     def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
         return expit(self.get_odds(i, j, t, venue))

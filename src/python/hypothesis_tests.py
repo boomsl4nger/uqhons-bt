@@ -38,6 +38,8 @@ def compare_deviances(m1: BaseBradleyTerry, m2: BaseBradleyTerry) -> dict:
     """Perform likelihood ratio test (LRT) by comparison of deviance for two models. 
     Assumes that M1 is nested in M2.
 
+    See: https://en.wikipedia.org/wiki/Wilks'_theorem
+
     Args:
         m1 (BaseBradleyTerry): Nested model.
         m2 (BaseBradleyTerry): Alternative model.
@@ -72,11 +74,11 @@ def is_nested(m1_name: str, m2_name: str) -> bool:
         bool: True if M1 is nested in M2, otherwise False.
     """
     ranks = {
-        "DyVANBT": 0,
-        "DyCHABT": 1,
-        "DyCHIBT": 2,
-        "DyTSABT": 2,
-        "DyTSIBT": 3
+        "VANBT": 0,
+        "CHABT": 1,
+        "CHIBT": 2,
+        "TSABT": 2,
+        "TSIBT": 3
     }
     
     if m1_name not in ranks or m2_name not in ranks:
