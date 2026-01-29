@@ -61,30 +61,36 @@ def compare_deviances(m1: BaseBradleyTerry, m2: BaseBradleyTerry) -> dict:
         "p_value": p_val
     }
 
-def is_nested(m1_name: str, m2_name: str) -> bool:
+def is_nested(m1: BaseBradleyTerry, m2: BaseBradleyTerry) -> bool:
     """Check if model M1 is nested in model M2 based on our Bradley-Terry model relationships.
+    Considers both order effect and temporal complexity.
     The order effects nestedness hierarchy is:
     `VANBT > CHABT > (CHIBT OR TSABT) > TSIBT`
 
     Args:
-        m1_name (str): Name of null model.
-        m2_name (str): Name of alternative model.
+        m1: Null model.
+        m2: Alternative model.
 
     Returns:
         bool: True if M1 is nested in M2, otherwise False.
     """
-    ranks = {
-        "VANBT": 0,
-        "CHABT": 1,
-        "CHIBT": 2,
-        "TSABT": 2,
-        "TSIBT": 3
-    }
+    ranks = {"VANBT": 0, "CHABT": 1, "CHIBT": 2, "TSABT": 2, "TSIBT": 3}
+    m1_name = m1.__class__.__name__
+    m2_name = m2.__class__.__name__
     
     if m1_name not in ranks or m2_name not in ranks:
         raise ValueError(f"Unknown model types: {m1_name}, {m2_name}")
 
-    return ranks[m1_name] < ranks[m2_name]
+    # A model M1 is nested in M2 if:
+    # 1. Temporal: M1 has no more time blocks than M2.
+    # 2. Structural: M1 rank <= M2 rank AND they aren't parallel.
+    # 3. Identifiability: They aren't the exact same model.
+    
+    time_nested = m1.n_times <= m2.n_times
+    struct_nested = (ranks[m1_name] <= ranks[m2_name]) and not (ranks[m1_name] == ranks[m2_name] and m1_name != m2_name)
+    is_not_identical = not (m1_name == m2_name and m1.n_times == m2.n_times)
+
+    return time_nested and struct_nested and is_not_identical
 
 def simple_report(m1: BaseBradleyTerry, m2: BaseBradleyTerry, n: int):
     """Run a basic test suite for two given BT models.
@@ -105,17 +111,19 @@ def simple_report(m1: BaseBradleyTerry, m2: BaseBradleyTerry, n: int):
     results = {
         "m1": {
             "name": m1.__class__.__name__,
+            "n_times": m1.n_times,
             "aic": calculate_aic(m1_nll, m1_k), 
             "bic": calculate_bic(m1_nll, m1_k, n)
         },
         "m2": {
             "name": m2.__class__.__name__,
+            "n_times": m2.n_times,
             "aic": calculate_aic(m2_nll, m2_k), 
             "bic": calculate_bic(m2_nll, m2_k, n)
         },
     }
     
-    if is_nested(m1.__class__.__name__, m2.__class__.__name__):
+    if is_nested(m1, m2):
         results["lrt"] = compare_deviances(m1, m2)
     else:
         results["lrt"] = "Incompatible"
