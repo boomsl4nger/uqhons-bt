@@ -34,7 +34,7 @@ class VANBT(BaseBradleyTerry):
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
 
-                    loglik += wins * log(self._calculate_prob(theta_it, theta_jt))
+                    loglik += wins * log(self._calculate_prob(theta_it, theta_jt, 0))
 
         return -loglik
 
@@ -53,7 +53,7 @@ class VANBT(BaseBradleyTerry):
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
 
-                    score_it += wins - (wins + losses) * self._calculate_prob(theta_it, theta_jt)
+                    score_it += wins - (wins + losses) * self._calculate_prob(theta_it, theta_jt, 0)
 
                 score[self._get_strength_idx(i, t)] = score_it
 
@@ -74,7 +74,7 @@ class VANBT(BaseBradleyTerry):
                     losses = cur_mat.iloc[j, i]
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    pi_ij = self._calculate_prob(theta_it, theta_jt)
+                    pi_ij = self._calculate_prob(theta_it, theta_jt, 0)
 
                     # Off-diag elements
                     h_it_jt = (wins + losses) * pi_ij * (1 - pi_ij)
@@ -86,46 +86,17 @@ class VANBT(BaseBradleyTerry):
 
         return -hess
 
-    def get_param(self, team: str, time: str | int) -> float:
-        """Get a model parameter. The VANBT model only has team strengths in each time block.
-
-        Args:
-            team (str): Name of team. Raises an error if invalid.
-            time (str | int): Name of time block. Raises an error if invalid.
-
-        Returns:
-            float: Parameter value.
-        """
-        self._check_fitted()
-        
-        try:
-            team_idx = self.teams.index(team)
-            time_idx = self.times.index(time)
-        except ValueError:
-            print(f"Team '{team}' or time '{time}' not found in the model.")
-            raise
-
-        return self.params[self._get_strength_idx(team_idx, time_idx)]
-
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times
+    
+    def _get_hga_param(self, team=None, level=None):
+        raise ValueError("VANBT model has no home-ground advantage parameters.")
     
     def summary(self) -> str:
         return super().summary()
     
-    @staticmethod
-    def _calculate_odds(it: float, jt: float) -> float:
-        return it - jt
-
-    def get_odds(self, i: str, j: str, t: str | int) -> float:
-        return self._calculate_odds(self.get_param(i, t), self.get_param(j, t))
-    
-    @staticmethod
-    def _calculate_prob(it: float, jt: float) -> float:
-        return expit(VANBT._calculate_odds(it, jt))
-
-    def get_prob(self, i: str | int, j: str | int, t: str | int) -> float:
-        return expit(self.get_odds(i, j, t))
+    def _get_venue_map(self, i, j):
+        return {"home": 0, "away": 0, "neutral": 0}
 
 
 class CHABT(BaseBradleyTerry):
@@ -288,62 +259,21 @@ class CHABT(BaseBradleyTerry):
                 hess[self._get_strength_idx(i, t), self._get_hga_idx()] = hess[self._get_hga_idx(), self._get_strength_idx(i, t)] = dummy
 
         return -hess
-
-    def get_param(self, param_type: str, team: str = None, time: str | int = None) -> float:
-        # TODO param_type should be one of [hga, strength]
-        """Get a model parameter. The CHABT model has team strengths in each time block and a common
-        home-ground advantage effect.
-
-        Args:
-            param_type (str): `"strength"` for team strength; `"hga"` for home-ground advantage.
-            team (str, optional): Name of team. Default to None.
-            time (str | int, optional): Name of time block. Default to None.
-
-        Returns:
-            float: Parameter value.
-        """
-        self._check_fitted()
-
-        if param_type == "strength":
-            try:
-                team_idx = self.teams.index(team)
-                time_idx = self.times.index(time)
-                index = self._get_strength_idx(team_idx, time_idx)
-            except ValueError:
-                print(f"Team '{team}' or time '{time}' not found in the model.")
-                raise
-        elif param_type == "hga":
-            index = self._get_hga_idx()
-        else:
-            raise ValueError(f"Parameter type {param_type} is invalid. See docstring.")
-
-        return self.params[index]
     
     def _get_hga_idx(self):
         return -1
+    
+    def _get_hga_param(self, team=None, level=None):
+        return self.params[self._get_hga_idx()]
 
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + 1
     
     def summary(self) -> str:
         return super().summary()
-    
-    @staticmethod
-    def _calculate_odds(it: float, jt: float, h: float) -> float:
-        return it - jt + h
 
-    def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        # TODO venue must be one of [home, away, neutral]
-        venue_map = {"home": 1, "neutral": 0, "away": -1}
-        hga = self._get_hga_idx() * venue_map[venue]
-        return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
-    
-    @staticmethod
-    def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(CHABT._calculate_odds(it, jt, h))
-
-    def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        return expit(self.get_odds(i, j, t, venue))
+    def _get_venue_map(self, i, j):
+        return {"home": self.get_param("hga"), "neutral": 0, "away": -self.get_param("hga")}
 
 
 class TSABT(BaseBradleyTerry):
@@ -512,64 +442,25 @@ class TSABT(BaseBradleyTerry):
                 hess[self._get_strength_idx(i, t), self._get_hga_idx(i)] = hess[self._get_hga_idx(i), self._get_strength_idx(i, t)] = -dummy
 
         return -hess
-
-    def get_param(self, param_type: str, team: str, time: str | int = None) -> float:
-        # TODO param_type should be one of [hga, strength] and no default
-        """Get a model parameter. In the TSABT model, each team has strengths for each time block 
-        and a constant home-ground advantage.
-
-        Args:
-            param_type (str): `"strength"` for team strength; `"hga"` for home-ground advantage.
-            team (str): Name of team.
-            time (str | int, optional): Name of time block. Default to None.
-
-        Returns:
-            float: Parameter value.
-        """
-        self._check_fitted()
-
-        if param_type == "strength":
-            try:
-                team_idx = self.teams.index(team)
-                time_idx = self.times.index(time)
-                index = self._get_strength_idx(team_idx, time_idx)
-            except ValueError:
-                print(f"Team '{team}' or time '{time}' not found in the model.")
-        elif param_type == "hga":
-            try:
-                team_idx = self.teams.index(team)
-                index = self._get_hga_idx(team_idx)
-            except ValueError:
-                print(f"Team '{team}' not found in the model.")
-        else:
-            raise ValueError(f"Parameter type {param_type} is invalid. See docstring.")
-
-        return self.params[index]
     
     def _get_hga_idx(self, i) -> int:
         return self.n_teams * self.n_times + i
+    
+    def _get_hga_param(self, team=None, level=None):
+        try:
+            team_idx = self.teams.index(team)
+            return self.params[self._get_hga_idx(team_idx)]
+        except ValueError:
+            raise ValueError(f"Team '{team}' not found in the model.")
 
     def get_n_params(self) -> int:
         return self.n_teams * (self.n_times + 1)
     
     def summary(self) -> str:
         return super().summary()
-    
-    @staticmethod
-    def _calculate_odds(it: float, jt: float, h: float) -> float:
-        return it - jt + h
 
-    def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        venue_map = {"home": self.get_param("hga", i), "neutral": 0, "away": -self.get_param("hga", j)}
-        hga = venue_map[venue]
-        return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
-    
-    @staticmethod
-    def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(TSABT._calculate_odds(it, jt, h))
-
-    def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        return expit(self.get_odds(i, j, t, venue))
+    def _get_venue_map(self, i, j):
+        return {"home": self.get_param("hga", i), "neutral": 0, "away": -self.get_param("hga", j)}
 
 
 class CHIBT(BaseHierarchicalBT):
@@ -740,43 +631,16 @@ class CHIBT(BaseHierarchicalBT):
                     hess[self._get_strength_idx(i, t), self._get_hga_idx(k)] = hess[self._get_hga_idx(k), self._get_strength_idx(i, t)] = dummy
 
         return -hess
-
-    def get_param(self, param_type: str, team: str = None, time: str | int = None, level = None) -> float:
-        # TODO param_type should be one of [hga, strength]
-        """Get a model parameter. The CHABT model has team strengths in each time block and a common
-        home-ground advantage effect.
-
-        Args:
-            param_type (str): `"strength"` for team strength; `"hga"` for home-ground advantage.
-            team (str, optional): Name of team. Default to None.
-            time (str | int, optional): Name of time block. Default to None.
-
-        Returns:
-            float: Parameter value.
-        """
-        self._check_fitted()
-
-        if param_type == "strength":
-            try:
-                team_idx = self.teams.index(team)
-                time_idx = self.times.index(time)
-                index = self._get_strength_idx(team_idx, time_idx)
-            except ValueError:
-                print(f"Team '{team}' or time '{time}' not found in the model.")
-                raise
-        elif param_type == "hga":
-            try:
-                level_idx = self.teams.index(level)
-                index = self._get_hga_idx(level_idx)
-            except ValueError:
-                print(f"Team '{team}' not found in the model.")
-        else:
-            raise ValueError(f"Parameter type {param_type} is invalid. See docstring.")
-
-        return self.params[index]
     
     def _get_hga_idx(self, k: int):
         return self.n_teams * self.n_times + k
+    
+    def _get_hga_param(self, team=None, level=None):
+        try:
+            level_idx = self.levels.index(level)
+            return self.params[self._get_hga_idx(level_idx)]
+        except ValueError:
+            raise ValueError(f"Level '{level}' not found in the model.")
 
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + self.n_levels
@@ -784,23 +648,9 @@ class CHIBT(BaseHierarchicalBT):
     def summary(self) -> str:
         return super().summary()
     
-    @staticmethod
-    def _calculate_odds(it: float, jt: float, h: float) -> float:
-        return it - jt + h
-
-    def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        # TODO venue must be one of [home, away, neutral]
-        venue_map = {"home": 1, "neutral": 0, "away": -1}
-        k = self.rel_mat.iloc[i, j]
-        hga = self._get_hga_idx(k) * venue_map[venue]
-        return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
-    
-    @staticmethod
-    def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(CHABT._calculate_odds(it, jt, h))
-
-    def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        return expit(self.get_odds(i, j, t, venue))
+    def _get_venue_map(self, i, j):
+        k = self.rel_mat.loc[i, j]
+        return {"home": self._get_hga_idx(k), "neutral": 0, "away": -self._get_hga_idx(k)}
 
 
 class TSIBT(BaseHierarchicalBT):
@@ -982,64 +832,23 @@ class TSIBT(BaseHierarchicalBT):
 
         return -hess
 
-    def get_param(self, param_type: str, team: str = None, time: str | int = None, level = None) -> float:
-        # TODO param_type should be one of [hga, strength]
-        """Get a model parameter. The CHABT model has team strengths in each time block and a common
-        home-ground advantage effect.
-
-        Args:
-            param_type (str): `"strength"` for team strength; `"hga"` for home-ground advantage.
-            team (str, optional): Name of team. Default to None.
-            time (str | int, optional): Name of time block. Default to None.
-
-        Returns:
-            float: Parameter value.
-        """
-        self._check_fitted()
-
-        if param_type == "strength":
-            try:
-                team_idx = self.teams.index(team)
-                time_idx = self.times.index(time)
-                index = self._get_strength_idx(team_idx, time_idx)
-            except ValueError:
-                print(f"Team '{team}' or time '{time}' not found in the model.")
-                raise
-        elif param_type == "hga":
-            try:
-                team_idx = self.teams.index(team)
-                level_idx = self.teams.index(level)
-                index = self._get_hga_idx(team_idx, level_idx)
-            except ValueError:
-                print(f"Team '{team}' not found in the model.")
-        else:
-            raise ValueError(f"Parameter type {param_type} is invalid. See docstring.")
-
-        return self.params[index]
-    
     def _get_hga_idx(self, i: int, k: int):
         return self.n_teams * self.n_times + i + self.n_teams * k
+    
+    def _get_hga_param(self, team=None, level=None):
+        try:
+            team_idx = self.teams.index(team)
+            level_idx = self.levels.index(level)
+            return self.params[self._get_hga_idx(team_idx, level_idx)]
+        except ValueError:
+            raise ValueError(f"Team '{team}' or level '{level}' not found in the model.")
 
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + self.n_teams * self.n_levels
     
     def summary(self) -> str:
         return super().summary()
-    
-    @staticmethod
-    def _calculate_odds(it: float, jt: float, h: float) -> float:
-        return it - jt + h
 
-    def get_odds(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        # TODO venue must be one of [home, away, neutral]
-        k = self.rel_mat.iloc[i, j]
-        venue_map = {"home": self.get_param("hga", team=i, level=k), "neutral": 0, "away": -self.get_param("hga", team=j, level=k)}
-        hga = venue_map[venue]
-        return self._calculate_odds(self.get_param(i, t), self.get_param(j, t), hga)
-    
-    @staticmethod
-    def _calculate_prob(it: float, jt: float, h: float) -> float:
-        return expit(CHABT._calculate_odds(it, jt, h))
-
-    def get_prob(self, i: str, j: str, t: str | int, venue: str = "home") -> float:
-        return expit(self.get_odds(i, j, t, venue))
+    def _get_venue_map(self, i, j):
+        k = self.rel_mat.loc[i, j]
+        return {"home": self.get_param("hga", team=i, level=k), "neutral": 0, "away": -self.get_param("hga", team=j, level=k)}

@@ -2,6 +2,8 @@ import numpy as np
 from numpy import ndarray
 from pandas import DataFrame
 from scipy.optimize import minimize
+from scipy.special import expit
+from typing import Literal
 
 # TODO make abstract base class
 # TODO consider staticmethods (LLH, odds, prob)
@@ -14,6 +16,8 @@ class BaseBradleyTerry():
     model will need to implement, primarily the log-likelihood function.
     """
     venue_keys = {"home", "away", "neutral"}
+
+    ## ===== INIT FNS ===== ##
 
     def __init__(self):
         """Initialise a Bradley-Terry model. Simply sets all fields to None. Setting should be done
@@ -125,6 +129,8 @@ class BaseBradleyTerry():
             raise RuntimeError("Model parameters are not yet fitted.")
 
         return True
+    
+    ## ===== MODEL FNS ===== ##
 
     def _log_likelihood(self, params: ndarray) -> float:
         """Calculates the (negative) log-likelihood for the Bradley-Terry model.
@@ -255,6 +261,8 @@ class BaseBradleyTerry():
         except np.linalg.LinAlgError:
             print("Warning: Hessian is singular.")
     
+    ## ===== GETTERS ===== ##
+
     def get_teams(self) -> list:
         """Get the list of team names in the data."""
         return self.teams
@@ -271,6 +279,10 @@ class BaseBradleyTerry():
         """Get the number of time blocks in the data."""
         return self.n_times
     
+    def get_n_params(self) -> int:
+        """Get the number of parameters in the model."""
+        raise NotImplementedError()
+    
     def _get_strength_idx(self, i, t) -> int:
         """Get the parameter vector index of a team strength.
 
@@ -283,18 +295,33 @@ class BaseBradleyTerry():
     def _get_hga_idx(self) -> int:
         raise NotImplementedError()
 
-    def get_param(self) -> float:
-        # Function for user to get a specific parameter from the model, since directly working with
-        # the vectorised array is not convenient
-        raise NotImplementedError()
-    
-    def _get_params(self) -> ndarray:
-        """Get the parameter vector for the model. Recommend using `get_param()` method instead.
-        See class docstring for format, since we need to vectorise for use in `fit()` method."""
-        return self.params
-    
-    def get_n_params(self) -> int:
-        """Get the number of parameters in the model."""
+    def get_param(self, param_type: Literal["strength", "hga"] = "strength", team = None, time = None, level = None) -> float:
+        """User-friendly function to get a specific parameter from the model, using names of teams 
+        and times rather than indices. This function is generic across all models, i.e., if using a
+        non-hierarchical model then the `level` parameter can be left blank.
+
+        Args:
+            param_type (str, optional): Use "strength" for team strengths or "hga" for home-ground advantage. Defaults to "strength".
+            team (optional): Name of the team. Defaults to None.
+            time (optional): Name of the time block. Defaults to None.
+            level (optional): Relationship level between teams. Defaults to None.
+
+        Returns:
+            float: Estimated parameter value.
+        """
+        self._check_fitted()
+        
+        if param_type == "strength":
+            try:
+                team_idx = self.teams.index(team)
+                time_idx = self.times.index(time)
+                return self.params[self._get_strength_idx(team_idx, time_idx)]
+            except ValueError:
+                raise ValueError(f"Team '{team}' or time '{time}' not found in the model.")
+        if param_type == "hga":
+            return self._get_hga_param(team, level)
+        
+    def _get_hga_param(self, team = None, level = None) -> float:
         raise NotImplementedError()
     
     def get_ranking(self, sort_by: str = None) -> DataFrame:
@@ -344,22 +371,31 @@ class BaseBradleyTerry():
         """Return a string for a pretty printed summary of the model."""
         raise NotImplementedError()
     
-    @staticmethod
-    def _calculate_odds(i: float, j: float, **kwargs) -> float:
-        """Calculate log-odds for `{i beats j}`. Static method for each subclass."""
-        raise NotImplementedError()
-
-    def get_odds(self, i: str | int, j: str | int, **kwargs) -> float:
-        raise NotImplementedError()
+    ## ===== ODDS AND PROBS CALCULATIONS ===== ##
     
     @staticmethod
-    def _calculate_prob(i: float, j: float, **kwargs) -> float:
-        """Calculate probability for `{i beats j}`. Static method for each subclass."""
+    def _calculate_odds(it: float, jt: float, h: float) -> float:
+        """Calculate log-odds for `{i beats j | t, venue}`."""
+        return it - jt + h
+    
+    @staticmethod
+    def _calculate_prob(it: float, jt: float, h: float) -> float:
+        """Calculate probability for `{i beats j | t, venue}`."""
+        return expit(BaseBradleyTerry._calculate_odds(it, jt, h))
+    
+    def _get_venue_map(self, i, j) -> dict:
         raise NotImplementedError()
 
-    def get_prob(self, i: str | int, j: str | int, **kwargs) -> float:
-        # TODO return expit(get_odds(params)) ?
-        raise NotImplementedError()
+    def get_odds(self, i, j, t, venue: Literal["home", "away", "neutral"] = "neutral") -> float:
+        theta_it = self.get_param(team=i, time=t)
+        theta_jt = self.get_param(team=j, time=t)
+        hga = self._get_venue_map(i, j)[venue]
+        return self._calculate_odds(theta_it, theta_jt, hga)
+
+    def get_prob(self, i, j, t, venue: Literal["home", "away", "neutral"] = "neutral") -> float:
+        return expit(self.get_odds(i, j, t, venue))
+    
+    ## ===== EXTRA CLASS FNS ===== ##
 
     def __str__(self):
         if self.params is None:
