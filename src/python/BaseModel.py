@@ -9,8 +9,7 @@ from typing import Literal
 # TODO consider staticmethods (LLH, odds, prob)
 # TODO naming for odds (when it's actually log-odds)
 # TODO type hint fields? eg self.data: dict, self.teams: list
-# TODO enum for things like venue types
-# TODO consider making a wrapper for static models
+# TODO consider making a wrapper for fully dynamic models
 class BaseBradleyTerry():
     """Abstract base class for our Bradley-Terry models. Mainly specifies the methods that each 
     model will need to implement, primarily the log-likelihood function.
@@ -207,16 +206,16 @@ class BaseBradleyTerry():
 
         return self
     
-    def rebase_abilities(self, method: str = "first_index", custom_team: str = None):
+    def rebase_abilities(self, method: Literal["first_index", "worst", "custom"] = "first_index", custom_team: str = None):
         """Helper function to rebase the estimated team strength parameters such that a chosen team 
         has zero strength in each time block. Needed to enforce model identifiability constraint(s).
 
         Args:
-            method (str): Method for rebasing, options are
+            method (Literal["first_index", "worst", "custom"], optional): Method for rebasing, options are
                 * "first_index" which takes the team with index 0 (default);
                 * "worst" which takes the team with worst strength on average; or,
                 * "custom" which lets the user specify any valid team name.
-            custom_team (str): If `method="custom"`, specify which team to set to zero.
+            custom_team (str, optional): If `method="custom"`, specify which team to set to zero.
         """
         self._check_fitted()
 
@@ -233,6 +232,10 @@ class BaseBradleyTerry():
             start_index = t * self.n_teams
             end_index = start_index + self.n_teams
             self.params[start_index:end_index] -= self.params[start_index + self.constraint_team_idx]
+
+        # Check if we need to rebase errors
+        if self.errors is not None:
+            self._calculate_errors()
 
     def _calculate_errors(self):
         """Calculate the standard errors for the model parameters using the inverse of the Hessian.
@@ -330,7 +333,7 @@ class BaseBradleyTerry():
 
         Args:
             sort_by (str): Specifies the column to sort the teams by. Options include:
-                        - 'Year X' (e.g., 'Year 1', 'Year 2') to sort by a specific year's ability.
+                        - Year (e.g. 1, 2020) to sort by a specific time block. TODO clean this...
                         - 'Average' to sort by the average ability across all years.
                         - 'Team' to sort alphabetically by team name.
 
@@ -363,9 +366,7 @@ class BaseBradleyTerry():
             # Default sort_by is first time block
             results_df = results_df.sort_values(by=results_df.columns[0], ascending=False)
 
-        results_df = results_df.reset_index(names="Team")
-
-        return results_df
+        return results_df #.reset_index(names="Team")
     
     def summary(self) -> str:
         """Return a string for a pretty printed summary of the model."""

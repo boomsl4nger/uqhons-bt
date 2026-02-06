@@ -1,7 +1,5 @@
 import numpy as np
-from numpy import ndarray, exp, log
-from pandas import DataFrame
-from scipy.special import expit
+from numpy import ndarray, log
 
 from BaseModel import BaseBradleyTerry, BaseHierarchicalBT
 
