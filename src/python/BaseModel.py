@@ -220,9 +220,9 @@ class BaseBradleyTerry():
         self._check_fitted()
 
         if method == "worst":
-            rankings = self.get_ranking(sort_by="Average")
+            rankings = self.get_ranking(sort_by="Team")
             self.constraint_team_idx = np.argmin(rankings["Average"])
-        if method == "custom" and custom_team is not None:
+        elif method == "custom" and custom_team is not None:
             # TODO try-except for team name?
             self.constraint_team_idx = self.teams.index(custom_team)
         else: # Assume default
