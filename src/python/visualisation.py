@@ -1,7 +1,7 @@
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
 import numpy as np
-from pandas import DataFrame
+from pandas import DataFrame, Series
 from scipy.differentiate import hessian
 from seaborn import FacetGrid
 import seaborn as sns
@@ -13,7 +13,7 @@ from BaseModel import BaseBradleyTerry
 # TODO ranks option: ranks = strengths.rank(ascending=False)
 
 def plot_strengths(
-        model: BaseBradleyTerry, with_errors: bool = False, 
+        model: BaseBradleyTerry, with_errors: bool = False, hga: float | Series = None,
         as_average: bool = False, as_facet: bool = False, n_facet_cols: int = 4
     ) -> Axes:
     # Customise outside this fn: figsize, sns theme (ticks), despine, etc
@@ -22,17 +22,20 @@ def plot_strengths(
     # COMMON HGA: option to either add scale legend OR produce multiple plots
     # TEAM-SPECIFIC HGA: multiple plots
 
+    model._check_fitted()
+
     errors = None
+    if with_errors:
+        if model.errors is None: model._calculate_errors()
+        n_strength_params = model.n_times * model.n_teams
+        err_reshape = model.errors[:n_strength_params].reshape(model.n_times, model.n_teams).T
+        errors = DataFrame(err_reshape, columns=model.times, index=model.teams)
+
     if as_average:
-        rankings = model.get_ranking("Average")["Average"]
-        ax = _plot_strengths_static(rankings)
+        rankings = model.get_ranking("Team")["Average"]
+        ax = _plot_strengths_static(rankings, errors, hga)
     else:
         rankings = model.get_ranking("Team").drop("Average", axis=1)
-        if with_errors:
-            if model.errors is None: model._calculate_errors()
-            n_strength_params = model.n_times * model.n_teams
-            err_reshape = model.errors[:n_strength_params].reshape(model.n_times, model.n_teams).T
-            errors = DataFrame(err_reshape, columns=model.times, index=model.teams)
         if as_facet:
             ax = _plot_strengths_dynamic_indiv(rankings, errors, col_wrap=n_facet_cols)
         else:
@@ -93,20 +96,50 @@ def _plot_strengths_dynamic_indiv(ranking: DataFrame, errors: DataFrame = None, 
     return g
 
 
-def _plot_strengths_static(ranking: DataFrame, errors: DataFrame = None):
-    ax = sns.pointplot(
-        x=ranking, y=ranking.index,
-        orient="h", linestyle="none"
-    )
+def _plot_strengths_static(ranking: Series, errors: Series = None, hga: float | Series = None) -> Axes:
+    err_offset = -0.15
 
-    if errors:
-        plt.errorbar(
-            ranking, ranking.index, xerr=errors,
-            fmt="o"
+    # Massage data into one nice df
+    df = ranking.rename("baseline").to_frame()
+
+    if hga is None:         # Type of HGA
+        df["home"] = np.nan
+    elif np.isscalar(hga):
+        df["home"] = df["baseline"] + hga
+    else:
+        df["home"] = df["baseline"] + hga.loc[df.index]
+    if errors is not None:  # Errors are optional
+        df["se"] = errors.loc[df.index]
+
+    df = df.sort_values("baseline")
+    
+    # Plotting
+    ax = plt.gca()
+    y = np.arange(len(df))
+    ax.scatter(df["baseline"], y, zorder=3, label="Neutral")
+
+    if hga is not None:
+        ax.scatter(df["home"], y, zorder=4, label="Home")
+        for i, row in enumerate(df.itertuples()):
+            ax.plot(
+                [row.baseline, row.home], [i, i],
+                alpha=0.4, zorder=2, c="k"
+            )
+
+    if errors is not None:
+        ax.errorbar(
+            df["baseline"], y + err_offset, xerr=df["se"],
+            fmt="none", ecolor="0.6", elinewidth=1, capsize=2, zorder=1
         )
 
-    plt.xlabel("Strength")
-    plt.ylabel("Team")
+
+    ax.set_yticks(y)
+    ax.set_yticklabels(df.index)
+
+    # ax.axvline(0, linestyle="--", alpha=0.4)
+    ax.set_xlabel("Strength")
+    ax.set_ylabel("Team")
+    if hga is not None: ax.legend()
 
     return ax
 
