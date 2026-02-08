@@ -10,6 +10,7 @@ from BaseModel import BaseBradleyTerry
 
 
 ## BT model wrapper(s)
+# TODO ranks option: ranks = strengths.rank(ascending=False)
 
 def plot_strengths(
         model: BaseBradleyTerry, with_errors: bool = False, 
@@ -23,8 +24,8 @@ def plot_strengths(
 
     errors = None
     if as_average:
-        rankings = model.get_ranking("Team")["Average"]
-        _plot_strengths_static(rankings)
+        rankings = model.get_ranking("Average")["Average"]
+        ax = _plot_strengths_static(rankings)
     else:
         rankings = model.get_ranking("Team").drop("Average", axis=1)
         if with_errors:
@@ -63,7 +64,7 @@ def _plot_strengths_dynamic(ranking: DataFrame, errors: DataFrame = None) -> Axe
     ax.set_xlabel("Time")
     ax.set_ylabel("Strength")
     plt.xticks(sorted(ranking.columns))
-    sns.move_legend(ax, "upper left", bbox_to_anchor=(-0.25, 1))
+    # sns.move_legend(ax, "upper left", bbox_to_anchor=(-0.25, 1))
 
     return ax
 
@@ -93,17 +94,21 @@ def _plot_strengths_dynamic_indiv(ranking: DataFrame, errors: DataFrame = None, 
 
 
 def _plot_strengths_static(ranking: DataFrame, errors: DataFrame = None):
-    # TODO error bars
-    sns.barplot(
-        data=ranking, x=1, y="Team", 
-        hue="Team", legend=False, palette=sns.color_palette("crest", n_colors=len(ranking))
+    ax = sns.pointplot(
+        x=ranking, y=ranking.index,
+        orient="h", linestyle="none"
     )
 
     if errors:
-        # TODO add error bars
-        pass
+        plt.errorbar(
+            ranking, ranking.index, xerr=errors,
+            fmt="o"
+        )
 
     plt.xlabel("Strength")
+    plt.ylabel("Team")
+
+    return ax
 
 
 ## Other plotting fns
