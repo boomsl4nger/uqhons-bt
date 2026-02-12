@@ -1,16 +1,15 @@
+import matplotlib.pyplot as plt
 import numpy as np
 from pandas import DataFrame
 from scipy.differentiate import hessian
 from scipy.linalg import norm
 from scipy.optimize import check_grad
+import seaborn as sns
 
 from BaseModel import BaseBradleyTerry
 
 # TODO func that converts venue matrices into win totals (ie generic VANBT support)
 # will need for both static and discrete dyanmic mods
-# TODO data validation for basically everything, also should allow generic iterables that follow the
-# predefined column formats
-# TODO think about how best to do the hierarchy relationship matrices
 # TODO look at other util/support functions implemented by BT2 that would aid users
 
 def make_win_matrix(df: DataFrame) -> DataFrame:
@@ -55,12 +54,18 @@ def make_time_blocked_win_matrix(df: DataFrame) -> dict[str: DataFrame]:
     Returns:
         dict: dictionary of win matrices, where the keys are the unique time blocks (e.g. years).
     """
+    all_teams = sorted(list(set(df.iloc[:, 0]).union(set(df.iloc[:, 1]))))
     times = df.iloc[:, -1].unique()
     matrices = {}
 
     for time in times:
         time_data = df[df.iloc[:, -1] == time].iloc[:, 0:4]
-        matrices[time] = make_win_matrix(time_data)
+        m = make_win_matrix(time_data)
+        
+        # Reindex to ensure all teams are included
+        m_full = m.reindex(index=all_teams, columns=all_teams, fill_value=0.0)
+        
+        matrices[time] = m_full
 
     return matrices
 
@@ -126,12 +131,19 @@ def make_time_blocked_venue_win_matrices(df: DataFrame) -> dict[str: dict[str: D
         dict: dictionary of dictionary of venue win matrices, where the outer keys are the unique 
         time blocks (e.g. years) and inner keys are the venue types.
     """
+    all_teams = sorted(list(set(df.iloc[:, 0]).union(set(df.iloc[:, 1]))))
     times = df.iloc[:, -1].unique()
     matrices = {}
 
     for time in times:
         time_data = df[df.iloc[:, -1] == time].iloc[:, 0:5]
-        matrices[time] = make_venue_win_matrices(time_data)
+        m = make_venue_win_matrices(time_data)
+        
+        # Reindex to ensure all teams are included
+        for venue_type in m.keys():
+            m[venue_type] = m[venue_type].reindex(index=all_teams, columns=all_teams, fill_value=0.0)
+        
+        matrices[time] = m
 
     return matrices
 
@@ -198,7 +210,7 @@ def check_model_grad(model: BaseBradleyTerry) -> float:
     x0 = rng.random(model.n_params) * 10
     return check_grad(model._log_likelihood, model._score, x0)
 
-def check_model_hess(model: BaseBradleyTerry) -> tuple:
+def check_model_hess(model: BaseBradleyTerry, show_warning: bool = False) -> tuple:
     """Helper function to check the analytic Hessian against a numerical calculation. Uses scipy's
     `differentiate.hessian` function for the latter. Difference is calculated by Frobenius norm.
 
@@ -215,9 +227,11 @@ def check_model_hess(model: BaseBradleyTerry) -> tuple:
     hess_ana = model._hessian(x0)
     hess_num = hessian(model._log_likelihood, x0)
 
-    if not hess_num.success.all():
+    if show_warning and not hess_num.success.all():
         print(f"Error in numerical Hessian calculation: status matrix below\n{hess_num.status}")
 
     hess_diff = norm(hess_ana - hess_num.ddf, ord="fro")
+    # TODO look into np.allclose with tolerances
+    # TODO better printing via rounding to sig figs
 
     return hess_diff, hess_ana, hess_num.ddf
