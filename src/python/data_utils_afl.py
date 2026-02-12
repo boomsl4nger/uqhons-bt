@@ -17,9 +17,6 @@ from typing import List, Optional
 # TODO account for aliases for both teams and venues, account for new teams/venues/merges
 # TODO generalise the functions to not assume the Akareen dataset
 
-TEAM_NAMES = {}
-TEAM_HOMES = {}
-
 def check_csv_headers(path: str, expected_headers: Optional[List[str]] = None) -> bool:
     """
     Checks if all CSV files in a directory have a specific set of column names.
@@ -127,7 +124,9 @@ def get_unique_teams(path: str, start_year: int = None, end_year: int = None) ->
 def get_unique_venues(path: str, start_year: int = None, end_year: int = None) -> set:
     return _get_unique_from_column(path, "venue", start_year, end_year)
 
-def load_data_afl(path: str, start_year: int = None, end_year: int = None) -> DataFrame:
+def load_data_afl(
+        path: str, start_year: int = None, end_year: int = None, tenant_info: dict = None, include_venue: bool = False
+    ) -> DataFrame:
     # For each row in each csv, which represents a single match between two teams in a given season
     # (i) Determine which is the home team, or if the game is neutral
     # (ii) Determine scores of each team
@@ -152,11 +151,20 @@ def load_data_afl(path: str, start_year: int = None, end_year: int = None) -> Da
             hscore = calculate_points_afl(row.loc["team_1_final_goals"], row.loc["team_1_final_behinds"])
             ateam = row.loc["team_2_team_name"]
             ascore = calculate_points_afl(row.loc["team_2_final_goals"], row.loc["team_2_final_behinds"])
-            result.append([hteam, ateam, hscore, ascore, 0, cur_year])
 
-    return DataFrame(result, columns = ["home", "away", "home_score", "away_score", "is_neutral", "year"]).reset_index(drop=True)
+            # Determine if the game is neutral based on the venue and tenant info (if provided)
+            venue = row.loc["venue"]
+            if tenant_info is not None:
+                i_home = venue in tenant_info[hteam].values()
+                j_home = venue in tenant_info[ateam].values()
+                is_neutral = int(i_home == j_home)
+            else:
+                is_neutral = 0
 
-if __name__ in "__main__":
-    # Basic testing -> move to a test file
-    print(calculate_points_afl(0, 0))
-    print(calculate_points_afl(10, 5))
+            dummy = [hteam, ateam, hscore, ascore, is_neutral, cur_year]
+            if include_venue: dummy.append(venue)
+            result.append(dummy)
+
+    cols = ["home", "away", "home_score", "away_score", "is_neutral", "year"]
+    if include_venue: cols.append("venue")
+    return DataFrame(result, columns=cols).reset_index(drop=True)
