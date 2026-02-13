@@ -54,9 +54,8 @@ def _plot_strengths_van(
         rankings = model.get_ranking("Team")["Average"]
         ax = _plot_strengths_static(rankings, errors)
     else:
-        rankings = model.get_ranking("Team").drop("Average", axis=1)
+        rankings = model.get_ranking("Team", add_average=False)
         if plot_type == "grid":
-            print(n_grid_cols)
             ax = _plot_strengths_dynamic_indiv(rankings, errors, col_wrap=n_grid_cols)
         else:
             ax = _plot_strengths_dynamic(rankings)
@@ -76,7 +75,6 @@ def _plot_strengths_cha(
     else:
         rankings = model.get_ranking("Team").drop("Average", axis=1)
         if plot_type == "grid":
-            print(n_grid_cols)
             ax = _plot_strengths_dynamic_indiv(rankings, errors, hga, col_wrap=n_grid_cols)
         else:
             ax = _plot_strengths_dynamic(rankings, hga)
@@ -96,7 +94,6 @@ def _plot_strengths_tsa(
     else:
         rankings = model.get_ranking("Team").drop("Average", axis=1)
         if plot_type == "grid":
-            print(n_grid_cols)
             ax = _plot_strengths_dynamic_indiv(rankings, errors, hga, col_wrap=n_grid_cols)
         else:
             # Plotting twice: baseline strengths then home-boosted strengths
@@ -167,7 +164,7 @@ def _add_hga_scalebar(ax, hga: float | Series):
         # Level label underneath
         lvl_label = TextArea(lvl, textprops=dict(size=9))
         
-        stack_1 = HPacker(children=[bar_box, mag],          align="center", pad=0, sep=2)
+        stack_1 = HPacker(children=[bar_box, mag],          align="center", pad=0, sep=4)
         stack_2 = VPacker(children=[stack_1, lvl_label],    align="center", pad=0, sep=4)
 
         bars.append(stack_2)
@@ -292,6 +289,7 @@ def _plot_strengths_static(ranking: Series, errors: Series = None, hga: float | 
 ## Other plotting fns
 
 def plot_competition(data):
+    # TODO See: https://networkx.org/documentation/stable/index.html
     pass
 
 

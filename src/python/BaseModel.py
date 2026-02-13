@@ -12,36 +12,38 @@ from typing import Literal
 # TODO consider making a wrapper for fully dynamic models
 class BaseBradleyTerry():
     """Abstract base class for our Bradley-Terry models. Mainly specifies the methods that each 
-    model will need to implement, primarily the log-likelihood function.
+    model will need to implement, such as the log-likelihood function.
     """
     venue_keys = {"home", "away", "neutral"}
 
     ## ===== INIT FNS ===== ##
 
     def __init__(self):
-        """Initialise a Bradley-Terry model. Simply sets all fields to None. Setting should be done
-        before model fitting with `_set_data()` method.
+        """Initialise a Bradley-Terry model.
+        
+        Setting should be done before model fitting with `_set_data()` method.
         """
         # Dataset characteristics
         self.data = None
         self.n_obs = 0
         self.teams = None
-        self.n_teams = None
+        self.n_teams = 0
         self.times = None
-        self.n_times = None
+        self.n_times = 0
 
         # Model fit items
         self.constraint_team_idx = 0
         self.params = None
-        self.n_params = None
+        self.n_params = 0
         self._fit_summary = None
         self._hess_inv = None
         self.errors = None
 
     def _set_data(self, data: dict):
         """Validate and set data-related parameters.
+
         Expected data structure is a dictionary with time block names as keys and win matrices as values.
-        Currently expecting the win matrices to be pandas DataFrames with team names as column names.
+        Currently expecting the win matrices to be pandas DataFrames with team names as column and index names.
         If using a HGA, we expect a nested dict with the venue types `"home", "away", "neutral"`.
         - Vanilla model: `{time: DataFrame}`
         - HGA models: `{time: {venue: DataFrame}}`
@@ -108,26 +110,11 @@ class BaseBradleyTerry():
     def _finalise_params(self):
         """Default setting number of parameters."""
         self.n_params = self.get_n_params()
-
-    def _init_params(self) -> ndarray:
-        """Initialise model parameters for fitting. Currently just using a zero vector for all
-        initial parameters.
-
-        Returns:
-            ndarray: Initial parameter vector.
-        """
-        return np.zeros(self.n_params)
     
-    def _check_fitted(self) -> bool:
-        """Check if the model parameters have been fit, and raises an exception if not.
-
-        Returns:
-            bool: True if the model parameters have been fit.
-        """
+    def _check_fitted(self):
+        """Check if the model parameters have been fit, and raises an exception if not."""
         if self.params is None:
             raise RuntimeError("Model parameters are not yet fitted.")
-
-        return True
     
     ## ===== MODEL FNS ===== ##
 
@@ -184,7 +171,7 @@ class BaseBradleyTerry():
         # using the L-BFGS-B or similar
 
         self._set_data(data)
-        initial_theta = self._init_params()
+        initial_theta = np.zeros(self.n_params)
 
         result = minimize(
             fun = self._log_likelihood,
@@ -194,10 +181,10 @@ class BaseBradleyTerry():
             options = {"disp": verbose}
         )
 
+        self._fit_summary = result
         if result.success:
             self.params = result.x
             self.rebase_abilities()
-            self._fit_summary = result
             if verbose:
                 print("Successfully fit model parameters.\n")
                 print(self._fit_summary)
@@ -223,7 +210,6 @@ class BaseBradleyTerry():
             rankings = self.get_ranking(sort_by="Team")
             self.constraint_team_idx = np.argmin(rankings["Average"])
         elif method == "custom" and custom_team is not None:
-            # TODO try-except for team name?
             self.constraint_team_idx = self.teams.index(custom_team)
         else: # Assume default
             self.constraint_team_idx = 0
@@ -250,8 +236,8 @@ class BaseBradleyTerry():
         # Standard errors are the sqrts of diagonal elements (obs Fisher approximates covariance mat)
         # Finally, just set the zeroed parameter SE to zero itself
 
-        # TODO might need to overwrite for static class but worry about this later
-        # TODO add hga params that don't get estimated (e.g. in TSI models) to remove list
+        # TODO consider teams parameters in years before the team plays (zero)
+        # TODO also hga params that don't get estimated (e.g. in TSI models)
         remove_idx = [self._get_strength_idx(self.constraint_team_idx, t) for t in range(self.n_times)]
         hess = self._hessian(self.params)
         hess_reduced = np.delete(np.delete(hess, remove_idx, axis=0), remove_idx, axis=1)
@@ -327,7 +313,7 @@ class BaseBradleyTerry():
     def _get_hga_param(self, team = None, level = None) -> float:
         raise NotImplementedError()
     
-    def get_ranking(self, sort_by: str = None) -> DataFrame:
+    def get_ranking(self, sort_by: str = None, add_average: bool = True) -> DataFrame:
         """
         Gets the estimated team abilities for all years, with customizable sorting.
 
@@ -353,14 +339,11 @@ class BaseBradleyTerry():
         )
         
         # Add an average column for potential sorting usability
-        results_df["Average"] = results_df.mean(axis=1)
+        if add_average: results_df["Average"] = results_df.mean(axis=1)
         
-        # Various options for sorting while I think about a good standard approach
-        # TODO consider alternatives, like rebasing relative to average strength, or displaying 
-        # probability of winning against an average team (strength 0)
         if sort_by == "Team":
             results_df = results_df.sort_index(ascending=True)
-        elif sort_by in results_df.columns or sort_by == "Average":
+        elif sort_by in results_df.columns or (sort_by == "Average" and add_average):
             results_df = results_df.sort_values(by=sort_by, ascending=False)
         else:
             # Default sort_by is first time block
@@ -415,7 +398,7 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         super().__init__()
         self.rel_mat = None
         self.levels = None
-        self.n_levels = None
+        self.n_levels = 0
 
     def _set_data(self, data: dict, rel_mat: DataFrame):
         self.rel_mat = rel_mat
@@ -439,7 +422,7 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         self.n_levels = len(self.levels)
         super()._finalise_params()
 
-    def fit(self, data: DataFrame, rel_mat, verbose: bool = False):
+    def fit(self, data: DataFrame, rel_mat: DataFrame, verbose: bool = False):
         """Fit the Bradley-Terry model to the data. The model parameters are estimated by minimising
         the negative log-likelihood. Currently uses the BFGS method, which requires the gradient of
         the objective function, i.e., the (negative) score statistic.
@@ -460,7 +443,7 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         # using the L-BFGS-B or similar
 
         self._set_data(data, rel_mat)
-        initial_theta = self._init_params()
+        initial_theta = np.zeros(self.n_params)
 
         result = minimize(
             fun = self._log_likelihood,
