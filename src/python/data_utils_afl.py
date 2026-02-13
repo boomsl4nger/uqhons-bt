@@ -125,7 +125,9 @@ def get_unique_venues(path: str, start_year: int = None, end_year: int = None) -
     return _get_unique_from_column(path, "venue", start_year, end_year)
 
 def load_data_afl(
-        path: str, start_year: int = None, end_year: int = None, tenant_info: dict = None, include_venue: bool = False
+        path: str, start_year: int = None, end_year: int = None, 
+        tenant_info: dict = None, aliases: dict = None, include_venue: bool = False,
+        print_missing_data: bool = False
     ) -> DataFrame:
     # For each row in each csv, which represents a single match between two teams in a given season
     # (i) Determine which is the home team, or if the game is neutral
@@ -143,21 +145,40 @@ def load_data_afl(
     result = []
     for filename in files_to_process:
         filepath = os.path.join(path, filename)
-        cur_file = pd.read_csv(filepath)
+        cur_file = pd.read_csv(filepath, )
         cur_year = cur_file.loc[:, "year"].unique()[0]
 
-        for _, row in cur_file.iterrows():
+        for i, row in cur_file.iterrows():
             hteam = row.loc["team_1_team_name"]
             hscore = calculate_points_afl(row.loc["team_1_final_goals"], row.loc["team_1_final_behinds"])
             ateam = row.loc["team_2_team_name"]
             ascore = calculate_points_afl(row.loc["team_2_final_goals"], row.loc["team_2_final_behinds"])
+            venue = row.loc["venue"]
+
+            # Check aliases
+            if aliases is not None:
+                if hteam in aliases:
+                    hteam = aliases[hteam]
+                if ateam in aliases:
+                    ateam = aliases[ateam]
+
+            # Check missing
+            if any(pd.isnull([hteam, ateam, hscore, ascore, venue])):
+                if print_missing_data:
+                    print(f"Missing data in file '{filename}' at line {i}")
+
+                continue # Skip missing data
 
             # Determine if the game is neutral based on the venue and tenant info (if provided)
-            venue = row.loc["venue"]
-            if tenant_info is not None:
+            if tenant_info is not None and hteam in tenant_info and ateam in tenant_info:
                 i_home = venue in tenant_info[hteam].values()
                 j_home = venue in tenant_info[ateam].values()
                 is_neutral = int(i_home == j_home)
+
+                # Also check if the home and away teams are swapped
+                if not i_home and j_home:
+                    hteam, ateam = ateam, hteam
+                    hscore, ascore = ascore, hscore
             else:
                 is_neutral = 0
 
