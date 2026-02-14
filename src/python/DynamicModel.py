@@ -3,7 +3,6 @@ from numpy import ndarray, log
 
 from BaseModel import BaseBradleyTerry, BaseHierarchicalBT
 
-# TODO handle teams coming in and out of data each year -> requirements for mats, etc
 # TODO look into sparse matrices for data (and justify)
 class VANBT(BaseBradleyTerry):
     """Class for a dyanmic 'vanilla' (VAN) Bradley-Terry model.
@@ -90,8 +89,8 @@ class VANBT(BaseBradleyTerry):
     def _get_hga_param(self, team=None, level=None):
         raise ValueError("VANBT model has no home-ground advantage parameters.")
     
-    def summary(self) -> str:
-        return super().summary()
+    def _hga_summary(self):
+        return ""
     
     def _get_venue_map(self, i, j):
         return {"home": 0, "away": 0, "neutral": 0}

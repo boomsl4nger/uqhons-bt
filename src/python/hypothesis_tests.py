@@ -1,7 +1,8 @@
 from numpy import log
 from scipy.stats import chi2
 
-from BaseModel import BaseBradleyTerry
+# TODO need to avoid circular imports
+# from BaseModel import "BaseBradleyTerry"
 
 def calculate_aic(nll: float, k: int) -> float:
     """Calculate the Akaike information criterion (AIC) for a model.
@@ -32,34 +33,63 @@ def calculate_bic(nll: float, k: int, n: int) -> float:
     """
     return k * log(n) + 2 * nll
 
-def compare_deviances(m1: BaseBradleyTerry, m2: BaseBradleyTerry) -> dict:
+def calculate_deviance_test_stat(nll1: float, nll2: float) -> float:
+    """Calculate the deviance test statistic for two models based on their negative log-likelihoods.
+
+    See: https://en.wikipedia.org/wiki/Deviance_(statistics)
+
+    Args:
+        nll1 (float): Negative log-likelihood of model 1 (nested model).
+        nll2 (float): Negative log-likelihood of model 2 (alternative model).
+    
+    Returns:
+        float: Test statistic.
+    """
+    return 2 * (nll1 - nll2)
+
+def model_statistics(model: "BaseBradleyTerry") -> dict:
+    """Calculate key statistics for a given Bradley-Terry model."""
+    nll = model._fit_summary.fun
+    return {
+        "name": model.__class__.__name__,
+        "n_teams": model.n_teams,
+        "n_times": model.n_times,
+        "n_params": model.n_params,
+        "n_obs": model.n_obs,
+        "n_iter": model._fit_summary.nit,
+        "llh": -nll,
+        "aic": calculate_aic(nll, model.n_params),
+        "bic": calculate_bic(nll, model.n_params, model.n_obs)
+    }
+
+def compare_deviances(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry") -> dict:
     """Perform likelihood ratio test (LRT) by comparison of deviance for two models. 
     Assumes that M1 is nested in M2.
 
     See: https://en.wikipedia.org/wiki/Wilks'_theorem
 
     Args:
-        m1 (BaseBradleyTerry): Nested model.
-        m2 (BaseBradleyTerry): Alternative model.
+        m1 ("BaseBradleyTerry"): Nested model.
+        m2 ("BaseBradleyTerry"): Alternative model.
 
     Returns:
         dict: Results containing `"stat", "df", "p_value"`.
     """
-    D = 2 * (m1._fit_summary.fun - m2._fit_summary.fun)
+    D_value = calculate_deviance_test_stat(m1._fit_summary.fun, m2._fit_summary.fun)
     df = m2.n_params - m1.n_params
 
     if df <= 0:
         raise ValueError("Model M1 must have less parameters than M2.")
     
-    p_val = chi2.sf(D, df)
+    p_val = chi2.sf(D_value, df)
 
     return {
-        "stat": D,
+        "stat": D_value,
         "df": df,
         "p_value": p_val
     }
 
-def is_nested(m1: BaseBradleyTerry, m2: BaseBradleyTerry) -> bool:
+def is_nested(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry") -> bool:
     """Check if model M1 is nested in model M2 based on our Bradley-Terry model relationships.
     Considers both order effect and temporal complexity.
     The order effects nestedness hierarchy is:
@@ -90,13 +120,12 @@ def is_nested(m1: BaseBradleyTerry, m2: BaseBradleyTerry) -> bool:
 
     return time_nested and struct_nested and is_not_identical
 
-def simple_report(m1: BaseBradleyTerry, m2: BaseBradleyTerry):
+def simple_report(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry"):
     """Run a basic test suite for two given BT models.
 
     Args:
-        m1 (BaseBradleyTerry): Null model.
-        m2 (BaseBradleyTerry): Alternative model.
-        n (int): Number of observations. TODO remove and use `m1.n_obs` (check same as in M2).
+        m1 ("BaseBradleyTerry"): Null model.
+        m2 ("BaseBradleyTerry"): Alternative model.
 
     Returns:
         dict: Results containing `"m1", "m2", "lrt"`. Each model contains `"name", "aic", "bic"`.

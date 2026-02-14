@@ -5,6 +5,8 @@ from scipy.optimize import minimize
 from scipy.special import expit
 from typing import Literal
 
+from hypothesis_tests import model_statistics
+
 # TODO make abstract base class
 # TODO consider staticmethods (LLH, odds, prob)
 # TODO naming for odds (when it's actually log-odds)
@@ -313,37 +315,41 @@ class BaseBradleyTerry():
     def _get_hga_param(self, team = None, level = None) -> float:
         raise NotImplementedError()
     
-    def get_ranking(self, sort_by: str = None, add_average: bool = True) -> DataFrame:
+    def get_ranking(self, sort_by: str = None, include_average: bool = True, include_errors: bool = False) -> DataFrame:
         """
-        Gets the estimated team abilities for all years, with customizable sorting.
+        Gets the estimated team abilities for all years, with customisable sorting.
 
         Args:
             sort_by (str): Specifies the column to sort the teams by. Options include:
                         - Year (e.g. 1, 2020) to sort by a specific time block. TODO clean this...
                         - 'Average' to sort by the average ability across all years.
                         - 'Team' to sort alphabetically by team name.
+            include_average (bool): Whether to include an 'Average' column with the average ability across all years. Defaults to True.
+            include_errors (bool): Whether to include standard errors for the ability estimates. Defaults to False.
 
         Returns:
-            DataFrame: A DataFrame with team names and ability estimates for each year, sorted.
+            DataFrame: A DataFrame with team names and ability estimates for each year.
         """
         self._check_fitted()
 
         # Reshape to (I x T) matrix format
         n_strength_params = self.n_times * self.n_teams
         ability_matrix = self.params[:n_strength_params].reshape(self.n_times, self.n_teams).T
+        results_df = DataFrame(ability_matrix, index = self.teams, columns = self.times)
 
-        results_df = DataFrame(
-            ability_matrix, 
-            index = self.teams, 
-            columns = self.times
-        )
+        # Optionally add standard errors
+        if include_errors:
+            if self.errors is None: self._calculate_errors()
+            error_matrix = self.errors[:n_strength_params].reshape(self.n_times, self.n_teams).T
+            for i, t in enumerate(self.times):
+                results_df.insert(i*2 + 1, f"SE_{t}", error_matrix[:, i])
         
         # Add an average column for potential sorting usability
-        if add_average: results_df["Average"] = results_df.mean(axis=1)
+        if include_average: results_df["Average"] = results_df.mean(axis=1)
         
         if sort_by == "Team":
             results_df = results_df.sort_index(ascending=True)
-        elif sort_by in results_df.columns or (sort_by == "Average" and add_average):
+        elif sort_by in results_df.columns or (sort_by == "Average" and include_average):
             results_df = results_df.sort_values(by=sort_by, ascending=False)
         else:
             # Default sort_by is first time block
@@ -351,8 +357,46 @@ class BaseBradleyTerry():
 
         return results_df #.reset_index(names="Team")
     
-    def summary(self) -> str:
+    def summary(self, verbose: bool = True, print_summary: bool = True, wrap_len: int = 100) -> str:
         """Return a string for a pretty printed summary of the model."""
+        self._check_fitted()
+        stats = model_statistics(self)
+        padding_bar = "=" * wrap_len
+        padding_bar_short = "-" * 20
+
+        s = f"{padding_bar}\nMODEL SUMMARY: {self.__class__.__name__}\n{padding_bar}\n\n"
+        
+        # Fit Statistics
+        stat_pad = 10
+        s += f"{'Model Statistics'}\n"
+        s += f"{padding_bar_short}\n"
+        s += f"{'# Teams:':<{stat_pad}} {self.n_teams:<15} {'# Obs:':<{stat_pad}} {int(stats['n_obs'])}\n"
+        s += f"{'# Times:':<{stat_pad}} {self.n_times:<15} {'# Params:':<{stat_pad}} {self.n_params}\n"
+        s += f"{'LLH:':<{stat_pad}} {stats['llh']:.3f}\n"
+        s += f"{'AIC:':<{stat_pad}} {stats['aic']:.3f}\n"
+        s += f"{'BIC:':<{stat_pad}} {stats['bic']:.3f}\n"
+        s += f"{"# Iter:":<{stat_pad}} {stats['n_iter']}\n"
+
+        # Parameters
+        if verbose:
+            s += f"\n{'Team Rankings'}\n"
+            s += f"{'-'*20}\n"
+            ranking_df = self.get_ranking(include_errors=True).round(3)
+            longest_col_name = max([len(str(col)) for col in ranking_df.columns])
+            s += ranking_df.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
+
+        hga_str = self._hga_summary()
+        if hga_str:
+            s += f"\n{'Home-Ground Advantage':<20}\n"
+            s += f"{'-'*20}\n"
+            s += hga_str + "\n"
+
+        s += "\n" + padding_bar
+        if print_summary: print(s)
+        return s
+    
+    def _hga_summary(self) -> str:
+        """Return a string for the home-ground parameter(s) summary of a model."""
         raise NotImplementedError()
     
     ## ===== ODDS AND PROBS CALCULATIONS ===== ##
@@ -391,8 +435,9 @@ class BaseBradleyTerry():
     
 
 class BaseHierarchicalBT(BaseBradleyTerry):
-    """Base class for Hierarchical Bradley-Terry models. Simply adds a `hierarchy` variable and
-    relevant getters to `BaseBradleyTerry` class.
+    """Base class for Hierarchical Bradley-Terry models. 
+    
+    Adds params for the relationship matrix and relevant getters to `BaseBradleyTerry` class.
     """
     def __init__(self):
         super().__init__()

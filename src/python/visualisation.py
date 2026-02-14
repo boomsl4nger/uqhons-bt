@@ -54,7 +54,7 @@ def _plot_strengths_van(
         rankings = model.get_ranking("Team")["Average"]
         ax = _plot_strengths_static(rankings, errors)
     else:
-        rankings = model.get_ranking("Team", add_average=False)
+        rankings = model.get_ranking("Team", include_average=False)
         if plot_type == "grid":
             ax = _plot_strengths_dynamic_indiv(rankings, errors, col_wrap=n_grid_cols)
         else:
