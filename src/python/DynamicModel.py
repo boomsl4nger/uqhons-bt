@@ -1,5 +1,6 @@
 import numpy as np
 from numpy import ndarray, log
+from pandas import DataFrame
 
 from BaseModel import BaseBradleyTerry, BaseHierarchicalBT
 
@@ -266,8 +267,8 @@ class CHABT(BaseBradleyTerry):
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + 1
     
-    def summary(self) -> str:
-        return super().summary()
+    def _hga_summary(self):
+        return f"Common: {self._get_hga_param():.3f}"
 
     def _get_venue_map(self, i, j):
         return {"home": self.get_param("hga"), "neutral": 0, "away": -self.get_param("hga")}
@@ -453,8 +454,9 @@ class TSABT(BaseBradleyTerry):
     def get_n_params(self) -> int:
         return self.n_teams * (self.n_times + 1)
     
-    def summary(self) -> str:
-        return super().summary()
+    def _hga_summary(self):
+        hgas = DataFrame(self.params[-self.n_teams:], index=self.teams, columns=["HGA"])
+        return hgas.sort_values("HGA", ascending=False).round(3).to_string()
 
     def _get_venue_map(self, i, j):
         return {"home": self.get_param("hga", i), "neutral": 0, "away": -self.get_param("hga", j)}

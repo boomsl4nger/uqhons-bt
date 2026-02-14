@@ -357,12 +357,12 @@ class BaseBradleyTerry():
 
         return results_df #.reset_index(names="Team")
     
-    def summary(self, verbose: bool = True, print_summary: bool = True, wrap_len: int = 100) -> str:
+    def summary(self, verbose: bool = True, print_summary: bool = True, sort_by: str = "Average", wrap_len: int = 100) -> str:
         """Return a string for a pretty printed summary of the model."""
         self._check_fitted()
         stats = model_statistics(self)
         padding_bar = "=" * wrap_len
-        padding_bar_short = "-" * 20
+        padding_bar_short = "-" * 25
 
         s = f"{padding_bar}\nMODEL SUMMARY: {self.__class__.__name__}\n{padding_bar}\n\n"
         
@@ -380,15 +380,15 @@ class BaseBradleyTerry():
         # Parameters
         if verbose:
             s += f"\n{'Team Rankings'}\n"
-            s += f"{'-'*20}\n"
-            ranking_df = self.get_ranking(include_errors=True).round(3)
+            s += f"{padding_bar_short}\n"
+            ranking_df = self.get_ranking(sort_by=sort_by, include_errors=True).round(3)
             longest_col_name = max([len(str(col)) for col in ranking_df.columns])
             s += ranking_df.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
 
         hga_str = self._hga_summary()
         if hga_str:
-            s += f"\n{'Home-Ground Advantage':<20}\n"
-            s += f"{'-'*20}\n"
+            s += f"\n{'Home-Ground Advantage'}\n"
+            s += f"{padding_bar_short}\n"
             s += hga_str + "\n"
 
         s += "\n" + padding_bar
