@@ -644,8 +644,9 @@ class CHIBT(BaseHierarchicalBT):
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + self.n_levels
     
-    def summary(self) -> str:
-        return super().summary()
+    def _hga_summary(self):
+        hgas = DataFrame(self.params[-self.n_levels:], index=self.levels, columns=["HGA"])
+        return hgas.sort_values("HGA", ascending=False).round(3).to_string()
     
     def _get_venue_map(self, i, j):
         k = self.rel_mat.loc[i, j]
@@ -845,8 +846,10 @@ class TSIBT(BaseHierarchicalBT):
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + self.n_teams * self.n_levels
     
-    def summary(self) -> str:
-        return super().summary()
+    def _hga_summary(self):
+        hga_reshaped = self.params[-(self.n_levels * self.n_teams):].reshape(self.n_levels, self.n_teams).T
+        hgas = DataFrame(hga_reshaped, index=self.levels, columns=self.teams)
+        return hgas.sort_values("HGA", ascending=False).round(3).to_string()
 
     def _get_venue_map(self, i, j):
         k = self.rel_mat.loc[i, j]

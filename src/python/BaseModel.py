@@ -385,11 +385,11 @@ class BaseBradleyTerry():
             longest_col_name = max([len(str(col)) for col in ranking_df.columns])
             s += ranking_df.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
 
-        hga_str = self._hga_summary()
-        if hga_str:
-            s += f"\n{'Home-Ground Advantage'}\n"
-            s += f"{padding_bar_short}\n"
-            s += hga_str + "\n"
+            hga_str = self._hga_summary()
+            if hga_str:
+                s += f"\n{'Home-Ground Advantage'}\n"
+                s += f"{padding_bar_short}\n"
+                s += hga_str + "\n"
 
         s += "\n" + padding_bar
         if print_summary: print(s)
