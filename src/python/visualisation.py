@@ -17,8 +17,7 @@ from DynamicModel import *
 # TODO docstrings
 
 def plot_strengths(
-        model: BaseBradleyTerry, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        with_errors: bool = False, n_grid_cols: int = 4
+        model: BaseBradleyTerry, plot_type: Literal["dynamic", "average", "grid"] = "dynamic", **kwargs
     ) -> Axes:
     # Customise outside this fn: figsize, sns theme (ticks), despine, etc
     # https://seaborn.pydata.org/tutorial/aesthetics.html
@@ -29,34 +28,25 @@ def plot_strengths(
     model._check_fitted()
 
     if isinstance(model, VANBT):
-        _plot_strengths_van(model, plot_type, with_errors, n_grid_cols)
+        _plot_strengths_van(model, plot_type, **kwargs)
     elif isinstance(model, CHABT):
-        _plot_strengths_cha(model, plot_type, with_errors, n_grid_cols)
+        _plot_strengths_cha(model, plot_type, **kwargs)
     elif isinstance(model, TSABT):
-        _plot_strengths_tsa(model, plot_type, with_errors, n_grid_cols)
+        _plot_strengths_tsa(model, plot_type, **kwargs)
     else:
         raise ValueError(f"Model {type(model).__name__} not recognised.")
 
 def _plot_strengths_van(
         model: VANBT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        with_errors: bool = False, n_grid_cols: int = 4
+        n_grid_cols: int = 4
     ) -> Axes:
-
-    # TODO
-    errors = None
-    # if with_errors:
-    #     if model.errors is None: model._calculate_errors()
-    #     n_strength_params = model.n_times * model.n_teams
-    #     err_reshape = model.errors[:n_strength_params].reshape(model.n_times, model.n_teams).T
-    #     errors = DataFrame(err_reshape, columns=model.times, index=model.teams)
-
     if plot_type == "average":
         rankings = model.get_ranking("Team")["Average"]
-        ax = _plot_strengths_static(rankings, errors)
+        ax = _plot_strengths_static(rankings)
     else:
         rankings = model.get_ranking("Team", include_average=False)
         if plot_type == "grid":
-            ax = _plot_strengths_dynamic_indiv(rankings, errors, col_wrap=n_grid_cols)
+            ax = _plot_strengths_dynamic_indiv(rankings, col_wrap=n_grid_cols)
         else:
             ax = _plot_strengths_dynamic(rankings)
 
@@ -64,18 +54,17 @@ def _plot_strengths_van(
 
 def _plot_strengths_cha(
         model: CHABT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        with_errors: bool = False, n_grid_cols: int = 4
+        n_grid_cols: int = 4
     ) -> Axes:
-    errors = None
     hga = model.get_param("hga")
 
     if plot_type == "average":
         rankings = model.get_ranking("Team")["Average"]
-        ax = _plot_strengths_static(rankings, errors, hga)
+        ax = _plot_strengths_static(rankings, hga)
     else:
         rankings = model.get_ranking("Team").drop("Average", axis=1)
         if plot_type == "grid":
-            ax = _plot_strengths_dynamic_indiv(rankings, errors, hga, col_wrap=n_grid_cols)
+            ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
         else:
             ax = _plot_strengths_dynamic(rankings, hga)
 
@@ -83,34 +72,35 @@ def _plot_strengths_cha(
 
 def _plot_strengths_tsa(
         model: TSABT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        with_errors: bool = False, n_grid_cols: int = 4
+        n_grid_cols: int = 4, figsize: tuple = (14, 6), legend_loc: tuple = (-0.15, 1)
     ) -> Axes:
-    errors = None
     hga = Series(model.params[-model.n_teams:], index=model.teams)
 
     if plot_type == "average":
         rankings = model.get_ranking("Team")["Average"]
-        ax = _plot_strengths_static(rankings, errors, hga)
+        ax = _plot_strengths_static(rankings, hga)
     else:
         rankings = model.get_ranking("Team").drop("Average", axis=1)
         if plot_type == "grid":
-            ax = _plot_strengths_dynamic_indiv(rankings, errors, hga, col_wrap=n_grid_cols)
+            ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
         else:
             # Plotting twice: baseline strengths then home-boosted strengths
-            # TODO relplot would be cleaner
-            fig, ax = plt.subplots(ncols=2, figsize=(12, 6), sharey=True)
+            first_year = sorted(rankings.columns)[0]
+            hue_order = rankings[first_year].sort_values(ascending=False).index.tolist()
 
-            ax1 = ax[0] # Baseline plot
-            _plot_strengths_dynamic(rankings, ax=ax1)
+            fig, ax = plt.subplots(ncols=2, figsize=figsize, sharey=True, sharex=True)
+
+            # Baseline
+            ax1 = _plot_strengths_dynamic(rankings, hue_order=hue_order, ax=ax[0])
             ax1.set_title("Away")
 
             handles, labels = ax1.get_legend_handles_labels()
             new_labels = [f"{team} ({hga.loc[team]:.2f})" for team in labels]
             ax1.legend(handles, new_labels, title="Team (HGA)")
-            sns.move_legend(ax1, "upper right", bbox_to_anchor=(-0.15, 1))
+            sns.move_legend(ax1, "upper right", bbox_to_anchor=legend_loc)
 
-            ax2 = ax[1] # Home-boosted plot
-            _plot_strengths_dynamic(rankings.add(hga, axis=0), ax=ax2)
+            # Home-boosted
+            ax2 = _plot_strengths_dynamic(rankings.add(hga, axis=0), hue_order=hue_order, ax=ax[1])
             ax2.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
             ax2.set_title("Home")
             ax2.get_legend().remove()
@@ -191,19 +181,25 @@ def _add_hga_scalebar(ax, hga: float | Series):
     ax.add_artist(anchored_box)
 
 
-def _plot_strengths_dynamic(ranking: DataFrame, hga: float | Series = None, ax: Axes = None) -> Axes:
+def _plot_strengths_dynamic(ranking: DataFrame, hga: float | Series = None, hue_order: list = None, add_markers: bool = False, ax: Axes = None) -> Axes:
+    # Legend ordering
+    if hue_order is not None and not all(team in ranking.index for team in hue_order):
+        raise ValueError(f"Teams in hue_order not found in ranking index!")
+    if hue_order is None:
+        first_year = sorted(ranking.columns)[0]
+        hue_order = ranking[first_year].sort_values(ascending=False).index.tolist()
+
     # Plot team strengths
     rank_long = ranking.reset_index(names="Team").melt(id_vars=["Team"], var_name="Year", value_name="Strength")
     ax = sns.lineplot(
-        data=rank_long, x="Year", y="Strength", hue="Team", 
-        marker="o", linewidth=1, ax=ax
+        data=rank_long, x="Year", y="Strength", hue="Team", hue_order=hue_order,
+        marker=("o" if add_markers else None), linewidth=1, ax=ax
     )
 
     # Formatting stuff
     ax.set_xlabel("Time")
     ax.set_ylabel("Strength")
     plt.xticks(sorted(ranking.columns))
-    sns.move_legend(ax, "upper right", bbox_to_anchor=(-0.15, 1))
 
     # Add HGA scale legend via OffsetBox stacking
     if hga is not None:
@@ -218,26 +214,13 @@ def _plot_strengths_dynamic_indiv(ranking: DataFrame, errors: DataFrame = None, 
     g = sns.FacetGrid(rank_long, col="Team", col_wrap=col_wrap)
     g.map_dataframe(sns.lineplot, x="Year", y="Strength", marker="o", linewidth=1)
 
-    # Plot errors if provided
-    # if errors is not None:
-    #     err_long = errors.reset_index(names="Team").melt(id_vars=["Team"], var_name="Year", value_name="Strength")
-    #     merged = rank_long.merge(err_long, on=["Team", "Year"])
-
-    #     def _add_errorbars(data, **kws):
-    #         plt.errorbar(
-    #             data["Year"], data["Strength_x"], yerr=data["Strength_y"],
-    #             fmt="none", alpha=0.4, zorder=-1)
-
-    #     # TODO fix this
-    #     g.map_dataframe(_add_errorbars, data=merged)
-
     g.set_axis_labels("Time", "Strength")
     # TODO x ticks are not integers
 
     return g
 
 
-def _plot_strengths_static(ranking: Series, errors: Series = None, hga: float | Series = None) -> Axes:
+def _plot_strengths_static(ranking: Series, hga: float | Series = None, errors: Series = None) -> Axes:
     err_offset = -0.15
 
     # Massage data into one nice df
