@@ -220,50 +220,25 @@ def _plot_strengths_dynamic_indiv(ranking: DataFrame, errors: DataFrame = None, 
     return g
 
 
-def _plot_strengths_static(ranking: Series, hga: float | Series = None, errors: Series = None) -> Axes:
-    err_offset = -0.15
+def _plot_strengths_static(ranking: Series | DataFrame, ax: Axes = None) -> Axes:
+    if ax is None: ax = plt.gca()
 
-    # Massage data into one nice df
-    df = ranking.rename("baseline").to_frame()
-
-    if hga is None:         # Type of HGA
-        df["home"] = np.nan
-    elif np.isscalar(hga):
-        df["home"] = df["baseline"] + hga
-    else:
-        df["home"] = df["baseline"] + hga.loc[df.index]
-    if errors is not None:  # Errors are optional
-        df["se"] = errors.loc[df.index]
-
-    df = df.sort_values("baseline")
-    
-    # Plotting
-    ax = plt.gca()
-    y = np.arange(len(df))
-    ax.scatter(df["baseline"], y, zorder=3, label="Neutral")
-
-    if hga is not None:
-        ax.scatter(df["home"], y, zorder=4, label="Home")
-        for i, row in enumerate(df.itertuples()): # Dumbbell plot
-            ax.plot([row.baseline, row.home], [i, i], alpha=0.3, zorder=2, c="k")
-    else:
-        for i, row in enumerate(df.itertuples()): # Lollypop plot
-            ax.plot([0, row.baseline], [i, i], alpha=0.3, zorder=2, c="k")
-
-    if errors is not None:
-        ax.errorbar(
-            df["baseline"], y + err_offset, xerr=df["se"],
-            fmt="none", ecolor="0.6", elinewidth=1, capsize=2, zorder=1
-        )
-
+    y = np.arange(len(ranking))
+    if isinstance(ranking, Series): # VANBT: lollypop plot
+        ax.hlines(y, xmin=0, xmax=ranking.values, color="k", alpha=0.3, lw=1, zorder=2)
+        ax.scatter(ranking.values, y, zorder=3)
+    else:                           # Other models: dumbbell plot
+        ax.hlines(y, xmin=ranking.min(axis=1), xmax=ranking.max(axis=1), color="k", alpha=0.3, lw=2, zorder=2)
+        palette = sns.color_palette(n_colors=len(ranking.columns))
+        for col, c in zip(ranking.columns, palette):
+            ax.scatter(ranking[col], y, label=col, color=c, zorder=3)
+        ax.legend(loc="lower right")
 
     ax.set_yticks(y)
-    ax.set_yticklabels(df.index)
-
+    ax.set_yticklabels(ranking.index)
     ax.axvline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
     ax.set_xlabel("Strength")
     ax.set_ylabel("Team")
-    if hga is not None: ax.legend(loc="lower right")
 
     return ax
 
