@@ -250,6 +250,24 @@ def plot_competition(data):
     # TODO See: https://networkx.org/documentation/stable/index.html
     pass
 
+def plot_win_prob_heatmap(model, team_of_interest: str, venue: str = "home") -> DataFrame:
+    """Generates a heatmap of win probabilities for a team against all opponents over time."""
+    opponents = [t for t in model.teams if t != team_of_interest]
+    prob_matrix = np.zeros((len(opponents), model.n_times))
+    
+    for t_idx, time in enumerate(model.times):
+        for o_idx, opponent in enumerate(opponents):
+            prob_matrix[o_idx, t_idx] = model.get_prob(team_of_interest, opponent, time, venue)
+            
+    df_probs = DataFrame(prob_matrix, index=opponents, columns=model.times)
+    
+    plt.figure(figsize=(10, 8))
+    sns.heatmap(df_probs, annot=True, fmt=".2f", cmap="RdYlGn", center=0.5, vmin=0, vmax=1)
+    plt.title(f"Win Probs for {team_of_interest} ({venue.capitalize()})")
+    plt.xlabel("Time")
+    plt.ylabel("Opponent")
+    
+    return df_probs
 
 def plot_hessian(mod: BaseBradleyTerry, diff: bool = False):
     """Plot analytic and numerical Hessians for comparison purposes. Model must be fitted already.
