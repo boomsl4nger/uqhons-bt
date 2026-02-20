@@ -22,7 +22,7 @@ def plot_strengths(
     # Customise outside this fn: figsize, sns theme (ticks), despine, etc
     # https://seaborn.pydata.org/tutorial/aesthetics.html
 
-    # COMMON HGA: option to either add scale legend OR produce multiple plots
+    # COMMON HGA: add scale bar
     # TEAM-SPECIFIC HGA: multiple plots
 
     model._check_fitted()
@@ -33,6 +33,10 @@ def plot_strengths(
         _plot_strengths_cha(model, plot_type, **kwargs)
     elif isinstance(model, TSABT):
         _plot_strengths_tsa(model, plot_type, **kwargs)
+    elif isinstance(model, CHIBT):
+        _plot_strengths_chi(model, plot_type, **kwargs)
+    elif isinstance(model, TSIBT):
+        _plot_strengths_tsi(model, plot_type, **kwargs)
     else:
         raise ValueError(f"Model {type(model).__name__} not recognised.")
 
@@ -41,7 +45,7 @@ def _plot_strengths_van(
         n_grid_cols: int = 4
     ) -> Axes:
     if plot_type == "average":
-        rankings = model.get_ranking("Team")["Average"]
+        rankings = model.get_ranking("Team")["Average"].sort_values()
         ax = _plot_strengths_static(rankings)
     else:
         rankings = model.get_ranking("Team", include_average=False)
@@ -56,13 +60,34 @@ def _plot_strengths_cha(
         model: CHABT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
         n_grid_cols: int = 4
     ) -> Axes:
-    hga = model.get_param("hga")
-
+    hga = model.get_hgas()["HGA"].values[0]
     if plot_type == "average":
-        rankings = model.get_ranking("Team")["Average"]
-        ax = _plot_strengths_static(rankings, hga)
+        rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
+        rankings["Home"] = rankings["Away"] + hga
+        rankings.sort_values("Away", inplace=True)
+        ax = _plot_strengths_static(rankings)
     else:
-        rankings = model.get_ranking("Team").drop("Average", axis=1)
+        rankings = model.get_ranking("Team", include_average=False)
+        if plot_type == "grid":
+            ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
+        else:
+            ax = _plot_strengths_dynamic(rankings, hga)
+
+    return ax
+
+def _plot_strengths_chi(
+        model: CHIBT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
+        n_grid_cols: int = 4
+    ) -> Axes:
+    hga = model.get_hgas()["HGA"]
+    if plot_type == "average":
+        rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
+        for level in model.levels:
+            rankings[f"Home_{level}"] = rankings["Away"] + hga[level]
+        rankings.sort_values("Away", inplace=True)
+        ax = _plot_strengths_static(rankings)
+    else:
+        rankings = model.get_ranking("Team", include_average=False)
         if plot_type == "grid":
             ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
         else:
@@ -74,13 +99,14 @@ def _plot_strengths_tsa(
         model: TSABT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
         n_grid_cols: int = 4, figsize: tuple = (14, 6), legend_loc: tuple = (-0.15, 1)
     ) -> Axes:
-    hga = Series(model.params[-model.n_teams:], index=model.teams)
-
+    hga = model.get_hgas()["HGA"]
     if plot_type == "average":
-        rankings = model.get_ranking("Team")["Average"]
-        ax = _plot_strengths_static(rankings, hga)
+        rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
+        rankings["Home"] = rankings["Away"] + hga
+        rankings.sort_values("Away", inplace=True)
+        ax = _plot_strengths_static(rankings)
     else:
-        rankings = model.get_ranking("Team").drop("Average", axis=1)
+        rankings = model.get_ranking("Team", include_average=False)
         if plot_type == "grid":
             ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
         else:
@@ -104,6 +130,46 @@ def _plot_strengths_tsa(
             ax2.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
             ax2.set_title("Home")
             ax2.get_legend().remove()
+
+    return ax
+
+def _plot_strengths_tsi(
+        model: TSIBT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
+        n_grid_cols: int = 4, figsize: tuple = (14, 6), legend_loc: tuple = (-0.15, 1)
+    ) -> Axes:
+    hga = model.get_hgas()
+    if plot_type == "average":
+        rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
+        for level in model.levels:
+            rankings[f"Home_{level}"] = rankings["Away"] + hga[level]
+        rankings.sort_values("Away", inplace=True)
+        ax = _plot_strengths_static(rankings)
+    else:
+        rankings = model.get_ranking("Team", include_average=False)
+        if plot_type == "grid":
+            ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
+        else:
+            # Plotting k times: baseline strengths then home-boosted strengths for each level
+            first_year = sorted(rankings.columns)[0]
+            hue_order = rankings[first_year].sort_values(ascending=False).index.tolist()
+
+            fig, ax = plt.subplots(ncols=(model.n_levels+1), figsize=figsize, sharey=True, sharex=True)
+
+            # Baseline
+            ax1 = _plot_strengths_dynamic(rankings, hue_order=hue_order, ax=ax[0])
+            ax1.set_title("Away")
+
+            # handles, labels = ax1.get_legend_handles_labels()
+            # new_labels = [f"{team} ({hga.loc[team]:.2f})" for team in labels]
+            # ax1.legend(handles, new_labels, title="Team (HGA)")
+            sns.move_legend(ax1, "upper right", bbox_to_anchor=legend_loc)
+
+            # Home-boosted
+            for i, level in enumerate(model.levels):
+                ax2 = _plot_strengths_dynamic(rankings.add(hga[level], axis=0), hue_order=hue_order, ax=ax[i+1])
+                ax2.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
+                ax2.set_title(f"Home (level={level})")
+                ax2.get_legend().remove()
 
     return ax
 
