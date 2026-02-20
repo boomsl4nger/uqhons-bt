@@ -2,7 +2,7 @@ from numpy import log
 from scipy.stats import chi2
 
 # TODO need to avoid circular imports
-# from BaseModel import "BaseBradleyTerry"
+# from BaseModel import BaseBradleyTerry
 
 def calculate_aic(nll: float, k: int) -> float:
     """Calculate the Akaike information criterion (AIC) for a model.
@@ -47,7 +47,7 @@ def calculate_deviance_test_stat(nll1: float, nll2: float) -> float:
     """
     return 2 * (nll1 - nll2)
 
-def model_statistics(model: "BaseBradleyTerry") -> dict:
+def model_statistics(model) -> dict:
     """Calculate key statistics for a given Bradley-Terry model."""
     nll = model._fit_summary.fun
     return {
@@ -62,15 +62,15 @@ def model_statistics(model: "BaseBradleyTerry") -> dict:
         "bic": calculate_bic(nll, model.n_params, model.n_obs)
     }
 
-def compare_deviances(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry") -> dict:
+def compare_deviances(m1, m2) -> dict:
     """Perform likelihood ratio test (LRT) by comparison of deviance for two models. 
     Assumes that M1 is nested in M2.
 
     See: https://en.wikipedia.org/wiki/Wilks'_theorem
 
     Args:
-        m1 ("BaseBradleyTerry"): Nested model.
-        m2 ("BaseBradleyTerry"): Alternative model.
+        m1: Nested model.
+        m2: Alternative model.
 
     Returns:
         dict: Results containing `"stat", "df", "p_value"`.
@@ -89,7 +89,7 @@ def compare_deviances(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry") -> dict:
         "p_value": p_val
     }
 
-def is_nested(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry") -> bool:
+def is_nested(m1, m2) -> bool:
     """Check if model M1 is nested in model M2 based on our Bradley-Terry model relationships.
     Considers both order effect and temporal complexity.
     The order effects nestedness hierarchy is:
@@ -120,39 +120,60 @@ def is_nested(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry") -> bool:
 
     return time_nested and struct_nested and is_not_identical
 
-def simple_report(m1: "BaseBradleyTerry", m2: "BaseBradleyTerry"):
+def simple_report(m1, m2, print_report: bool = True, wrap_len: int = 85) -> dict:
     """Run a basic test suite for two given BT models.
 
     Args:
-        m1 ("BaseBradleyTerry"): Null model.
-        m2 ("BaseBradleyTerry"): Alternative model.
+        m1: Null model.
+        m2: Alternative model.
 
     Returns:
         dict: Results containing `"m1", "m2", "lrt"`. Each model contains `"name", "aic", "bic"`.
     """
-    m1_nll = m1._fit_summary.fun
-    m2_nll = m2._fit_summary.fun
-    m1_k = m1.n_params
-    m2_k = m2.n_params
+    # TODO allow for multiple models to be passed
+    results = {}
+    for i, model in enumerate([m1, m2]):
+        results[f"m{i+1}"] = {
+            "name": model.__class__.__name__,
+            "n_times": model.n_times,
+            "aic": calculate_aic(model._fit_summary.fun, model.n_params), 
+            "bic": calculate_bic(model._fit_summary.fun, model.n_params, model.n_obs)
+        }
     
-    results = {
-        "m1": {
-            "name": m1.__class__.__name__,
-            "n_times": m1.n_times,
-            "aic": calculate_aic(m1_nll, m1_k), 
-            "bic": calculate_bic(m1_nll, m1_k, m1.n_obs)
-        },
-        "m2": {
-            "name": m2.__class__.__name__,
-            "n_times": m2.n_times,
-            "aic": calculate_aic(m2_nll, m2_k), 
-            "bic": calculate_bic(m2_nll, m2_k, m2.n_obs)
-        },
-    }
-    
-    if is_nested(m1, m2):
+    nested_bool = is_nested(m1, m2)
+    if nested_bool:
         results["lrt"] = compare_deviances(m1, m2)
     else:
         results["lrt"] = "Incompatible"
+
+    if print_report:
+        padding = "=" * wrap_len
+        s = padding + "\n"
+        s += f"Bradley-Terry Model Comparison\n"
+        s += "-" * len("Bradley-Terry Model Comparison") + "\n\n"
+        
+        s += f"{'Model':<10} {'df':<5} {'NLL':<12} {'AIC':<12} {'BIC':<12} {'Deviance':<10} {'p'}\n"
+        s += f"{results['m1']['name']:<10} {m1.n_params:<5} {m1._fit_summary.fun:<12.2f} {results['m1']['aic']:<12.2f} {results['m1']['bic']:<12.2f}\n"
+        m2_line = f"{results['m2']['name']:<10} {m2.n_params:<5} {m2._fit_summary.fun:<12.2f} {results['m2']['aic']:<12.2f} {results['m2']['bic']:<12.2f}"
+        
+        if nested_bool:
+            p = results["lrt"]["p_value"]
+            p_str = f"{p:.2e}" if p < 0.001 else f"{p:.3f}"
+            
+            if p <= 0.001: sig_marker = "***"
+            elif p <= 0.01: sig_marker = "**"
+            elif p <= 0.05: sig_marker = "*"
+            elif p <= 0.1: sig_marker = "."
+            else: sig_marker = ""
+
+            m2_line += f" {results['lrt']['stat']:<10.3f} {p_str} {sig_marker}\n\n"
+            m2_line += f"{"Signif. codes:  0 '***' 0.001 '**' 0.01 '*' 0.05 '.' 0.1 ' ' 1"}\n"
+        else:
+            m2_line += f" {'NA':<10} {'NA'}\n"
+
+        s += m2_line
+        s += padding
+
+        print(s)
     
     return results
