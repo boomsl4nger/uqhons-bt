@@ -34,7 +34,8 @@ class BaseBradleyTerry():
         self.n_times = 0
 
         # Model fit items
-        self.constraint_team_idx = 0
+        self._constraint_team_idx = 0
+        self._non_estimated_params_idx = None # TODO
         self.params = None
         self.n_params = 0
         self._fit_summary = None
@@ -210,16 +211,16 @@ class BaseBradleyTerry():
 
         if method == "worst":
             rankings = self.get_ranking(sort_by="Team")
-            self.constraint_team_idx = np.argmin(rankings["Average"])
+            self._constraint_team_idx = np.argmin(rankings["Average"])
         elif method == "custom" and custom_team is not None:
-            self.constraint_team_idx = self.teams.index(custom_team)
+            self._constraint_team_idx = self.teams.index(custom_team)
         else: # Assume default
-            self.constraint_team_idx = 0
+            self._constraint_team_idx = 0
 
         for t in range(self.n_times):
             start_index = t * self.n_teams
             end_index = start_index + self.n_teams
-            self.params[start_index:end_index] -= self.params[start_index + self.constraint_team_idx]
+            self.params[start_index:end_index] -= self.params[start_index + self._constraint_team_idx]
 
         # Check if we need to rebase errors
         if self.errors is not None:
@@ -240,7 +241,7 @@ class BaseBradleyTerry():
 
         # TODO consider teams parameters in years before the team plays (zero)
         # TODO also hga params that don't get estimated (e.g. in TSI models)
-        remove_idx = [self._get_strength_idx(self.constraint_team_idx, t) for t in range(self.n_times)]
+        remove_idx = [self._get_strength_idx(self._constraint_team_idx, t) for t in range(self.n_times)]
         hess = self._hessian(self.params)
         hess_reduced = np.delete(np.delete(hess, remove_idx, axis=0), remove_idx, axis=1)
 
@@ -250,7 +251,7 @@ class BaseBradleyTerry():
             for idx in sorted(remove_idx):
                 self.errors = np.insert(self.errors, idx, 0.0)
         except np.linalg.LinAlgError:
-            print("Warning: Hessian is singular.")
+            raise RuntimeError("Cannot calculate errors: Hessian is singular.")
     
     ## ===== GETTERS ===== ##
 
@@ -336,6 +337,9 @@ class BaseBradleyTerry():
         n_strength_params = self.n_times * self.n_teams
         ability_matrix = self.params[:n_strength_params].reshape(self.n_times, self.n_teams).T
         results_df = DataFrame(ability_matrix, index = self.teams, columns = self.times)
+        
+        # Add an average column for potential sorting usability
+        if include_average: results_df["Average"] = results_df.mean(axis=1)
 
         # Optionally add standard errors
         if include_errors:
@@ -343,9 +347,6 @@ class BaseBradleyTerry():
             error_matrix = self.errors[:n_strength_params].reshape(self.n_times, self.n_teams).T
             for i, t in enumerate(self.times):
                 results_df.insert(i*2 + 1, f"SE_{t}", error_matrix[:, i])
-        
-        # Add an average column for potential sorting usability
-        if include_average: results_df["Average"] = results_df.mean(axis=1)
         
         if sort_by == "Team":
             results_df = results_df.sort_index(ascending=True)
@@ -357,8 +358,13 @@ class BaseBradleyTerry():
 
         return results_df #.reset_index(names="Team")
     
-    def summary(self, verbose: bool = True, print_summary: bool = True, sort_by: str = "Average", wrap_len: int = 100) -> str:
+    def get_hgas(self, include_errors: bool = False, as_str: bool = False):
+        """Return the home-ground parameter(s) of a model, such as in a Series or DataFrame."""
+        raise NotImplementedError()
+    
+    def summary(self, verbose: bool = True, print_summary: bool = True, sort_by: str = "Average", include_errors: bool = True, wrap_len: int = 100) -> str:
         """Return a string for a pretty printed summary of the model."""
+        # TODO include hierarchical model info
         self._check_fitted()
         stats = model_statistics(self)
         padding_bar = "=" * wrap_len
@@ -376,16 +382,17 @@ class BaseBradleyTerry():
         s += f"{'AIC:':<{stat_pad}} {stats['aic']:.3f}\n"
         s += f"{'BIC:':<{stat_pad}} {stats['bic']:.3f}\n"
         s += f"{"# Iter:":<{stat_pad}} {stats['n_iter']}\n"
+        s += f"\n{"Constraint team:"} {self.teams[self._constraint_team_idx]}\n"
 
         # Parameters
         if verbose:
             s += f"\n{'Team Rankings'}\n"
             s += f"{padding_bar_short}\n"
-            ranking_df = self.get_ranking(sort_by=sort_by, include_errors=True).round(3)
+            ranking_df = self.get_ranking(sort_by=sort_by, include_errors=include_errors).round(3)
             longest_col_name = max([len(str(col)) for col in ranking_df.columns])
             s += ranking_df.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
 
-            hga_str = self._hga_summary()
+            hga_str = self.get_hgas(as_str=True, include_errors=include_errors)
             if hga_str:
                 s += f"\n{'Home-Ground Advantage'}\n"
                 s += f"{padding_bar_short}\n"
@@ -394,10 +401,6 @@ class BaseBradleyTerry():
         s += "\n" + padding_bar
         if print_summary: print(s)
         return s
-    
-    def _hga_summary(self) -> str:
-        """Return a string for the home-ground parameter(s) summary of a model."""
-        raise NotImplementedError()
     
     ## ===== ODDS AND PROBS CALCULATIONS ===== ##
     

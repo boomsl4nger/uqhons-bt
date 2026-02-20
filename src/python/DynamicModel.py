@@ -90,8 +90,9 @@ class VANBT(BaseBradleyTerry):
     def _get_hga_param(self, team=None, level=None):
         raise ValueError("VANBT model has no home-ground advantage parameters.")
     
-    def _hga_summary(self):
-        return ""
+    def get_hgas(self, include_errors: bool = False, as_str: bool = False):
+        if as_str: return ""
+        raise ValueError("VANBT model has no home-ground advantage parameters.")
     
     def _get_venue_map(self, i, j):
         return {"home": 0, "away": 0, "neutral": 0}
@@ -267,8 +268,13 @@ class CHABT(BaseBradleyTerry):
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + 1
     
-    def _hga_summary(self):
-        return f"Common: {self._get_hga_param():.3f}"
+    def get_hgas(self, include_errors: bool = False, as_str: bool = False):
+        hga = DataFrame(self.get_param("hga"), index=["Common"], columns=["HGA"])
+        if include_errors:
+            if self.errors is None: self._calculate_errors()
+            hga["SE"] = self.errors[self._get_hga_idx()]
+        if as_str: return hga.round(3).to_string()
+        return hga
 
     def _get_venue_map(self, i, j):
         return {"home": self.get_param("hga"), "neutral": 0, "away": -self.get_param("hga")}
@@ -454,9 +460,13 @@ class TSABT(BaseBradleyTerry):
     def get_n_params(self) -> int:
         return self.n_teams * (self.n_times + 1)
     
-    def _hga_summary(self):
+    def get_hgas(self, include_errors: bool = False, as_str: bool = False):
         hgas = DataFrame(self.params[-self.n_teams:], index=self.teams, columns=["HGA"])
-        return hgas.sort_values("HGA", ascending=False).round(3).to_string()
+        if include_errors:
+            if self.errors is None: self._calculate_errors()
+            hgas["SE"] = self.errors[-self.n_teams:]
+        if as_str: return hgas.round(3).to_string()
+        return hgas
 
     def _get_venue_map(self, i, j):
         return {"home": self.get_param("hga", i), "neutral": 0, "away": -self.get_param("hga", j)}
@@ -644,9 +654,13 @@ class CHIBT(BaseHierarchicalBT):
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + self.n_levels
     
-    def _hga_summary(self):
+    def get_hgas(self, include_errors: bool = False, as_str: bool = False):
         hgas = DataFrame(self.params[-self.n_levels:], index=self.levels, columns=["HGA"])
-        return hgas.sort_values("HGA", ascending=False).round(3).to_string()
+        if include_errors:
+            if self.errors is None: self._calculate_errors()
+            hgas["SE"] = self.errors[-self.n_levels:]
+        if as_str: return hgas.round(3).to_string()
+        return hgas
     
     def _get_venue_map(self, i, j):
         k = self.rel_mat.loc[i, j]
@@ -846,10 +860,16 @@ class TSIBT(BaseHierarchicalBT):
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + self.n_teams * self.n_levels
     
-    def _hga_summary(self):
+    def get_hgas(self, include_errors: bool = False, as_str: bool = False):
         hga_reshaped = self.params[-(self.n_levels * self.n_teams):].reshape(self.n_levels, self.n_teams).T
-        hgas = DataFrame(hga_reshaped, index=self.levels, columns=self.teams)
-        return hgas.sort_values("HGA", ascending=False).round(3).to_string()
+        hgas = DataFrame(hga_reshaped, index=self.teams, columns=self.levels)
+        if include_errors:
+            if self.errors is None: self._calculate_errors()
+            error_matrix = self.errors[self.n_times * self.n_teams:].reshape(self.n_levels, self.n_teams).T
+            for i, k in enumerate(self.levels):
+                hgas.insert(i*2 + 1, f"SE_{k}", error_matrix[:, i])
+        if as_str: return hgas.sort_index().round(3).to_string()
+        return hgas
 
     def _get_venue_map(self, i, j):
         k = self.rel_mat.loc[i, j]
