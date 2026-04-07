@@ -1,10 +1,10 @@
 import numpy as np
 from numpy import ndarray, log
 from pandas import DataFrame
-
 from BaseModel import BaseBradleyTerry, BaseHierarchicalBT
 
 # TODO look into sparse matrices for data (and justify)
+# TODO can we be a bit radical and just use the TSI model with special cases?
 class VANBT(BaseBradleyTerry):
     """Class for a dyanmic 'vanilla' (VAN) Bradley-Terry model.
 
