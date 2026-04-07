@@ -54,12 +54,12 @@ def model_statistics(model) -> dict:
         "name": model.__class__.__name__,
         "n_teams": model.n_teams,
         "n_times": model.n_times,
-        "n_params": model.n_params,
+        "n_params": model.n_params_active,
         "n_obs": model.n_obs,
         "n_iter": model._fit_summary.nit,
         "llh": -nll,
-        "aic": calculate_aic(nll, model.n_params),
-        "bic": calculate_bic(nll, model.n_params, model.n_obs)
+        "aic": calculate_aic(nll, model.n_params_active),
+        "bic": calculate_bic(nll, model.n_params_active, model.n_obs)
     }
 
 def compare_deviances(m1, m2) -> dict:
@@ -76,7 +76,7 @@ def compare_deviances(m1, m2) -> dict:
         dict: Results containing `"stat", "df", "p_value"`.
     """
     D_value = calculate_deviance_test_stat(m1._fit_summary.fun, m2._fit_summary.fun)
-    df = m2.n_params - m1.n_params
+    df = m2.n_params_active - m1.n_params_active
 
     if df <= 0:
         raise ValueError("Model M1 must have less parameters than M2.")
@@ -136,8 +136,8 @@ def simple_report(m1, m2, print_report: bool = True, wrap_len: int = 85) -> dict
         results[f"m{i+1}"] = {
             "name": model.__class__.__name__,
             "n_times": model.n_times,
-            "aic": calculate_aic(model._fit_summary.fun, model.n_params), 
-            "bic": calculate_bic(model._fit_summary.fun, model.n_params, model.n_obs)
+            "aic": calculate_aic(model._fit_summary.fun, model.n_params_active), 
+            "bic": calculate_bic(model._fit_summary.fun, model.n_params_active, model.n_obs)
         }
     
     nested_bool = is_nested(m1, m2)
@@ -153,8 +153,8 @@ def simple_report(m1, m2, print_report: bool = True, wrap_len: int = 85) -> dict
         s += "-" * len("Bradley-Terry Model Comparison") + "\n\n"
         
         s += f"{'Model':<10} {'df':<5} {'NLL':<12} {'AIC':<12} {'BIC':<12} {'Deviance':<10} {'p'}\n"
-        s += f"{results['m1']['name']:<10} {m1.n_params:<5} {m1._fit_summary.fun:<12.2f} {results['m1']['aic']:<12.2f} {results['m1']['bic']:<12.2f}\n"
-        m2_line = f"{results['m2']['name']:<10} {m2.n_params:<5} {m2._fit_summary.fun:<12.2f} {results['m2']['aic']:<12.2f} {results['m2']['bic']:<12.2f}"
+        s += f"{results['m1']['name']:<10} {m1.n_params_active:<5} {m1._fit_summary.fun:<12.2f} {results['m1']['aic']:<12.2f} {results['m1']['bic']:<12.2f}\n"
+        m2_line = f"{results['m2']['name']:<10} {m2.n_params_active:<5} {m2._fit_summary.fun:<12.2f} {results['m2']['aic']:<12.2f} {results['m2']['bic']:<12.2f}"
         
         if nested_bool:
             p = results["lrt"]["p_value"]

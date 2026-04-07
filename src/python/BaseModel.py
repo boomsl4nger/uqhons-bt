@@ -1,3 +1,5 @@
+from collections import defaultdict
+import networkx as nx
 import numpy as np
 from numpy import ndarray
 from pandas import DataFrame
@@ -33,11 +35,15 @@ class BaseBradleyTerry():
         self.times = None
         self.n_times = 0
 
-        # Model fit items
+        # Constraints and edge case params
         self._constraint_team_idx = 0
-        self._non_estimated_params_idx = None # TODO
+        self.inactive_teams = defaultdict(list)
+        self.global_teams = None
+
+        # Model fit items
         self.params = None
         self.n_params = 0
+        self.n_params_active = 0
         self._fit_summary = None
         self._hess_inv = None
         self.errors = None
@@ -68,14 +74,17 @@ class BaseBradleyTerry():
         self.times = sorted(data)
         self.n_times = len(self.times)
 
+        # It's difficult to write a data validation function when the data requirements for the 
+        # children are different (VAN is just dict of dfs, while rest are dict of dict of dfs)
+        # We know that data is at least a dict and the child classes have the `venue_keys` set to
+        # distinguish between VAN or not, so check first item and go from there
         first = data[self.times[0]]
-
         if self.venue_keys is None: # Vanilla model
             if not isinstance(first, DataFrame):
                 raise ValueError(f"{self.__class__.__name__} requires {{time: DataFrame}} structure.")
             ref_df = first
         else:                       # HGA models
-            if not (isinstance(first, dict) and "home" in first):
+            if not (isinstance(first, dict) and "home" in first and isinstance(first["home"], DataFrame)):
                 raise ValueError(f"{self.__class__.__name__} requires "f"{{time: {{venue: DataFrame}}}} structure.")
             ref_df = first["home"]
 
@@ -88,10 +97,26 @@ class BaseBradleyTerry():
             if set(block) != self.venue_keys:
                 raise ValueError(f"Time {t} must contain keys {self.venue_keys}, got {set(block)}")
             return block.values()
+        
+        def find_inactive_teams(mat: DataFrame) -> list[str]:
+            row_sums = mat.sum(axis=1)
+            col_sums = mat.sum(axis=0)
+            return mat.index[(row_sums == 0) & (col_sums == 0)].tolist()
+        
+        def is_strongly_connected(mat: DataFrame) -> bool:
+            G = nx.DiGraph()
 
-        # Data validation loop
+            for i in mat.index:
+                for j in mat.columns:
+                    if i != j and mat.loc[i, j] > 0:
+                        G.add_edge(i, j)
+
+            return nx.is_strongly_connected(G)
+
+        # Main data validation loop
         for t in self.times:
-            for df in iter_matrices(data[t], t):
+            iter_mats = iter_matrices(data[t], t)
+            for df in iter_mats:
                 # Check is DataFrame
                 if not isinstance(df, DataFrame):
                     raise ValueError(f"Matrix in time block {t} is not a DataFrame.")
@@ -109,10 +134,37 @@ class BaseBradleyTerry():
                     raise ValueError(f"Negative values detected in time block {t}.")
                 
                 self.n_obs += df.to_numpy().sum()
+
+            win_mat = sum(iter_mats)
+
+            # Check for inactive teams
+            inactive = find_inactive_teams(win_mat)
+            for team in inactive:
+                self.inactive_teams[team].append(t)
+            
+            win_mat_active = win_mat.drop(index=inactive, columns=inactive)
+
+            # Check there are at least two active teams
+            if len(win_mat_active) < 2:
+                raise ValueError(f"Matrix in time block {t} has less than two active competitors!")
+            
+            # Check strong connectivity of active teams
+            if not is_strongly_connected(win_mat_active): # Just warn for now, could still work
+                print(f"Warning: win matrix for time block {t} is NOT strongly connected. Parameter estimates may not converge.")
+
+        # Check there is at least one global reference team
+        self.global_teams = sorted(list(set(self.teams) - set(self.inactive_teams.keys())))
+        if self.global_teams is None:
+            raise ValueError("No global reference team could be identified.")
+        
+        # Finally... set the reference team to be alphabetically first global team
+        self._constraint_team_idx = self.teams.index(self.global_teams[0])
                 
     def _finalise_params(self):
         """Default setting number of parameters."""
         self.n_params = self.get_n_params()
+        n_inactive_params = len([(team, t) for team, times in self.inactive_teams.items() for t in times])
+        self.n_params_active = self.n_params - self.n_times - n_inactive_params
     
     def _check_fitted(self):
         """Check if the model parameters have been fit, and raises an exception if not."""
@@ -199,6 +251,9 @@ class BaseBradleyTerry():
     def rebase_abilities(self, method: Literal["first_index", "worst", "custom"] = "first_index", custom_team: str = None):
         """Helper function to rebase the estimated team strength parameters such that a chosen team 
         has zero strength in each time block. Needed to enforce model identifiability constraint(s).
+        
+        Note: due to our non-parametric handling of time, the reference team must be present in each
+        time block. These teams can be seen via the `global_teams` field of this object.
 
         Args:
             method (Literal["first_index", "worst", "custom"], optional): Method for rebasing, options are
@@ -211,16 +266,30 @@ class BaseBradleyTerry():
 
         if method == "worst":
             rankings = self.get_ranking(sort_by="Team")
-            self._constraint_team_idx = np.argmin(rankings["Average"])
+            constraint_idx_tentative = np.argmin(rankings["Average"])
         elif method == "custom" and custom_team is not None:
-            self._constraint_team_idx = self.teams.index(custom_team)
+            constraint_idx_tentative = self.teams.index(custom_team)
         else: # Assume default
-            self._constraint_team_idx = 0
+            constraint_idx_tentative = self.teams.index(self.global_teams[0])
 
+        if self.teams[constraint_idx_tentative] not in self.global_teams:
+            raise ValueError(f"Team {self.teams[constraint_idx_tentative]} does not appear in every time block!")
+        
+        self._constraint_team_idx = constraint_idx_tentative
+
+        # Do the rebasing
         for t in range(self.n_times):
             start_index = t * self.n_teams
             end_index = start_index + self.n_teams
             self.params[start_index:end_index] -= self.params[start_index + self._constraint_team_idx]
+
+        # Set inactive parameters to NaN rather than zero
+        inactive_idxs = [
+            self._get_strength_idx(self.teams.index(team), self.times.index(t)) 
+            for team, times in self.inactive_teams.items() 
+            for t in times
+        ]
+        self.params[inactive_idxs] = np.nan
 
         # Check if we need to rebase errors
         if self.errors is not None:
@@ -239,19 +308,26 @@ class BaseBradleyTerry():
         # Standard errors are the sqrts of diagonal elements (obs Fisher approximates covariance mat)
         # Finally, just set the zeroed parameter SE to zero itself
 
-        # TODO consider teams parameters in years before the team plays (zero)
-        # TODO also hga params that don't get estimated (e.g. in TSI models)
-        remove_idx = [self._get_strength_idx(self._constraint_team_idx, t) for t in range(self.n_times)]
-        hess = self._hessian(self.params)
+        # Removing: reference team AND inactive team strength params
+        ref_team_idxs = [self._get_strength_idx(self._constraint_team_idx, t) for t in range(self.n_times)]
+        inactive_team_idxs = [
+            self._get_strength_idx(self.teams.index(team), self.times.index(t)) 
+            for team, times in self.inactive_teams.items() 
+            for t in times
+        ]
+
+        remove_idx = np.unique(ref_team_idxs + inactive_team_idxs)
+        params_swap_nan_zero = [i if not np.isnan(i) else 0.0 for i in self.params]
+        hess = self._hessian(params_swap_nan_zero)
         hess_reduced = np.delete(np.delete(hess, remove_idx, axis=0), remove_idx, axis=1)
 
         try:
             self._hess_inv = np.linalg.inv(hess_reduced)
             self.errors = np.sqrt(np.maximum(np.diag(self._hess_inv), 0)) # Maximum to prevent rare nans
             for idx in sorted(remove_idx):
-                self.errors = np.insert(self.errors, idx, 0.0)
+                self.errors = np.insert(self.errors, idx, np.nan)
         except np.linalg.LinAlgError:
-            raise RuntimeError("Cannot calculate errors: Hessian is singular.")
+            raise RuntimeError("Cannot calculate standard errors: Hessian is singular.")
     
     ## ===== GETTERS ===== ##
 
@@ -346,7 +422,7 @@ class BaseBradleyTerry():
             if self.errors is None: self._calculate_errors()
             error_matrix = self.errors[:n_strength_params].reshape(self.n_times, self.n_teams).T
             for i, t in enumerate(self.times):
-                results_df.insert(i*2 + 1, f"SE_{t}", error_matrix[:, i])
+                results_df.insert(i*2 + 1, f"[SE_{t}]", error_matrix[:, i])
         
         if sort_by == "Team":
             results_df = results_df.sort_index(ascending=True)
@@ -377,7 +453,7 @@ class BaseBradleyTerry():
         s += f"{'Model Statistics'}\n"
         s += f"{padding_bar_short}\n"
         s += f"{'# Teams:':<{stat_pad}} {self.n_teams:<15} {'# Obs:':<{stat_pad}} {int(stats['n_obs'])}\n"
-        s += f"{'# Times:':<{stat_pad}} {self.n_times:<15} {'# Params:':<{stat_pad}} {self.n_params}\n"
+        s += f"{'# Times:':<{stat_pad}} {self.n_times:<15} {'# Params:':<{stat_pad}} {self.n_params_active}\n"
         s += f"{'LLH:':<{stat_pad}} {stats['llh']:.3f}\n"
         s += f"{'AIC:':<{stat_pad}} {stats['aic']:.3f}\n"
         s += f"{'BIC:':<{stat_pad}} {stats['bic']:.3f}\n"

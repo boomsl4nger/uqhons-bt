@@ -1,6 +1,7 @@
 from typing import Literal
 from matplotlib.axes import Axes
 import matplotlib.pyplot as plt
+import networkx as nx
 import numpy as np
 from pandas import DataFrame, Series
 from scipy.differentiate import hessian
@@ -9,6 +10,8 @@ import seaborn as sns
 
 from BaseModel import BaseBradleyTerry
 from DynamicModel import *
+
+RANDOM_SEED = 888
 
 
 ## BT model wrapper(s)
@@ -311,10 +314,38 @@ def _plot_strengths_static(ranking: Series | DataFrame, ax: Axes = None) -> Axes
 
 
 ## Other plotting fns
+def make_competition_graph(data: DataFrame):
+    # Set up the graph
+    G = nx.DiGraph()
+    teams = data.index.tolist()
+    G.add_nodes_from(teams)
 
-def plot_competition(data):
+    for i in teams:
+        for j in teams:
+            w_ij = data.loc[i,j]
+            if i != j and w_ij > 0:
+                G.add_edge(i, j, weight=w_ij)
+
+    return G
+
+def plot_competition_graph(data: DataFrame):
     # TODO See: https://networkx.org/documentation/stable/index.html
-    pass
+    G = make_competition_graph(data)
+    pos = nx.spring_layout(G, seed=RANDOM_SEED)  # force-directed layout
+    weights = [G[u][v]["weight"] for u, v in G.edges]
+    weights = [w / max(weights) * 5 for w in weights] # Normalise weights
+
+    nx.draw(
+        G, pos,
+        with_labels=True,
+        node_size=2000,
+        font_size=10,
+        arrows=True,
+        width=weights
+    )
+
+    edge_labels = nx.get_edge_attributes(G, "weight")
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels)
 
 def plot_win_prob_heatmap(model, team_of_interest: str, venue: str = "home") -> DataFrame:
     """Generates a heatmap of win probabilities for a team against all opponents over time."""
