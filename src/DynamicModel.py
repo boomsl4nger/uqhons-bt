@@ -560,12 +560,6 @@ class CHIBT(BaseHierarchicalBT):
                         away_wins = cur_year["away"].iloc[i, j]
                         theta_it = params[self._get_strength_idx(i, t)]
                         theta_jt = params[self._get_strength_idx(j, t)]
-                        # hga = params[self._get_hga_idx(k)]
-                        # i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
-                        # i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
-
-                        # score[self._get_hga_idx(k)] += home_wins * (1 - i_beats_j_home) - away_wins * (1 - i_beats_j_away)
-
                         level_ij = self.rel_mat.iloc[i, j]
                         level_ji = self.rel_mat.iloc[j, i]
 
@@ -617,6 +611,7 @@ class CHIBT(BaseHierarchicalBT):
 
         # HGA terms
         for k, level in enumerate(self.levels):
+            hga = params[self._get_hga_idx(k)]
             dummy = 0
             for t, year in enumerate(self.times):
                 cur_year = self.data[year]
@@ -630,15 +625,23 @@ class CHIBT(BaseHierarchicalBT):
 
                         theta_it = params[self._get_strength_idx(i, t)]
                         theta_jt = params[self._get_strength_idx(j, t)]
-                        hga = params[self._get_hga_idx(k)]
-                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
-                        i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
 
-                        dummy += home_wins * i_beats_j_home * (1-i_beats_j_home) + away_wins * i_beats_j_away * (1-i_beats_j_away)
+                        level_ij = self.rel_mat.iloc[i, j]
+                        level_ji = self.rel_mat.iloc[j, i]
+
+                        if level_ij == level:
+                            p_home = self._calculate_prob(theta_it, theta_jt, hga)
+                            dummy += home_wins * p_home * (1 - p_home)
+
+                        if level_ji == level:
+                            p_away = self._calculate_prob(theta_it, theta_jt, -hga)
+                            dummy += away_wins * p_away * (1 - p_away)
+
             hess[self._get_hga_idx(k), self._get_hga_idx(k)] = -dummy
 
         # Cross terms
         for k, level in enumerate(self.levels):
+            hga = params[self._get_hga_idx(k)]
             for t, year in enumerate(self.times):
                 cur_year = self.data[year]
                 for i in range(self.n_teams):
@@ -654,12 +657,18 @@ class CHIBT(BaseHierarchicalBT):
 
                         theta_it = params[self._get_strength_idx(i, t)]
                         theta_jt = params[self._get_strength_idx(j, t)]
-                        hga = params[self._get_hga_idx(k)]
-                        i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga)
-                        i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga)
 
-                        dummy += -(home_wins + away_loss) * i_beats_j_home * (1-i_beats_j_home) \
-                        + (away_wins + home_loss) * i_beats_j_away * (1-i_beats_j_away)
+                        level_ij = self.rel_mat.iloc[i, j]
+                        level_ji = self.rel_mat.iloc[j, i]
+
+                        if level_ij == level:
+                            p_home = self._calculate_prob(theta_it, theta_jt, hga)
+                            dummy += -(home_wins + away_loss) * p_home * (1 - p_home)
+
+                        if level_ji == level:
+                            p_away = self._calculate_prob(theta_it, theta_jt, -hga)
+                            dummy += (away_wins + home_loss) * p_away * (1 - p_away)
+
                     hess[self._get_strength_idx(i, t), self._get_hga_idx(k)] = hess[self._get_hga_idx(k), self._get_strength_idx(i, t)] = dummy
 
         return -hess
@@ -691,7 +700,11 @@ class CHIBT(BaseHierarchicalBT):
 
 
 class TSIBT(BaseHierarchicalBT):
-    """Class for a dyanmic team-specific hierarchical home-ground advantage (TSI) Bradley-Terry model.
+    """
+    NOTE: this model is on backburner for now. It'll probably end up deleted in favour of wrapping
+    and renaming the CHI model above, since it's technically a special case.
+
+    Class for a dyanmic team-specific hierarchical home-ground advantage (TSI) Bradley-Terry model.
 
     Parameters:
     - Team strengths `theta_{it}` for each team `i=1, ..., I` in each time block `t=1,...,T`.
