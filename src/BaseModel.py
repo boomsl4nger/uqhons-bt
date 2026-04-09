@@ -226,6 +226,13 @@ class BaseBradleyTerry():
         # using the L-BFGS-B or similar
 
         self._set_data(data)
+        return self._fit_model(verbose=verbose)
+
+    def _fit_model(self, verbose: bool = False):
+        """Fit the Bradley-Terry model to the data. This function should be called internally after
+        `_set_data`. This is separated because the hierarchical models require the rel mat. In
+        practice, fitting should be done via the `fit` method.
+        """
         initial_theta = np.zeros(self.n_params)
 
         result = minimize(
@@ -389,7 +396,7 @@ class BaseBradleyTerry():
         if param_type == "hga":
             return self._get_hga_param(team, level)
         
-    def _get_hga_param(self, team = None, level = None) -> float:
+    def _get_hga_param(self, team = None) -> float:
         raise NotImplementedError()
     
     def get_ranking(self, sort_by: str = None, include_average: bool = True, include_errors: bool = False) -> DataFrame:
@@ -532,7 +539,7 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         """Validate the relationship matrix, which must have been set already to `self.rel_mat`"""
         # Check square matrix
         if self.rel_mat.shape != (self.n_teams, self.n_teams):
-            raise ValueError(f"rel_mat must be {self.n_teams}×{self.n_teams}, got {self.rel_mat.shape}")
+            raise ValueError(f"rel_mat must be {self.n_teams}x{self.n_teams}, got {self.rel_mat.shape}")
         
         # Check symmetric
         if not (self.rel_mat.values == self.rel_mat.values.T).all():
@@ -555,39 +562,15 @@ class BaseHierarchicalBT(BaseBradleyTerry):
 
         Args:
             data (DataFrame): Data for the model.
-            TODO
+            rel_mat (DataFrame): Relationship matrix for the teams.
             verbose (bool, optional): If true, prints convergence messages from `scipy.minimize()`.
                 Defaults to False.
 
         Returns:
             self: Fitted model.
         """
-        # TODO maybe have method param, kwargs for passing options?
-        # TODO constrained optimisation for theta_1 = 0 (which gets rebased to theta_(1) = 0 later) 
-        # using the L-BFGS-B or similar
-
         self._set_data(data, rel_mat)
-        initial_theta = np.zeros(self.n_params)
-
-        result = minimize(
-            fun = self._log_likelihood,
-            x0 = initial_theta,
-            method = "BFGS",
-            jac = self._score,
-            options = {"disp": verbose}
-        )
-
-        if result.success:
-            self.params = result.x
-            self.rebase_abilities()
-            self._fit_summary = result
-            if verbose:
-                print("Successfully fit model parameters.\n")
-                print(self._fit_summary)
-        else:
-            print(f"Model fit error: {result.message}")
-
-        return self
+        return self._fit_model(verbose=verbose)
 
     def _get_hierarchy(self):
         return self.rel_mat
@@ -597,6 +580,9 @@ class BaseHierarchicalBT(BaseBradleyTerry):
     
     def get_n_levels(self):
         return self.n_levels
+    
+    def _get_hga_param(self, team = None, level = None) -> float:
+        raise NotImplementedError()
     
     def get_relationship(self, i, j):
         i_idx = self.teams.index(i)
