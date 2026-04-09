@@ -485,34 +485,25 @@ class CHIBT(BaseHierarchicalBT):
     def _log_likelihood(self, params: ndarray) -> float:
         loglik = 0.0
 
-        rel = self.rel_mat.values
-
         for t, year in enumerate(self.times):
             cur_year = self.data[year]
+            for i in range(self.n_teams):
+                for j in range(self.n_teams):
+                    if i == j: continue # Assume teams don't play themselves
 
-            theta = params[(t * self.n_teams):((t+1) * self.n_teams)]
-            theta_i, theta_j = theta[:, None], theta[None, :]
+                    home_wins = cur_year["home"].iloc[i, j]
+                    away_wins = cur_year["away"].iloc[i, j]
+                    neut_wins = cur_year["neutral"].iloc[i, j]
 
-            home_wins = cur_year["home"].values
-            away_wins = cur_year["away"].values
-            neut_wins = cur_year["neutral"].values
+                    theta_it = params[self._get_strength_idx(i, t)]
+                    theta_jt = params[self._get_strength_idx(j, t)]
+                    hga_ij = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[i, j]))]
+                    hga_ji = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[j, i]))]
+                    i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_ij)
+                    i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga_ji)
+                    i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
 
-            for k, lvl in enumerate(self.levels):
-                hga = params[self._get_hga_idx(k)]
-                m_home = (rel == lvl) & self._mask
-                m_away = (rel.T == lvl) & self._mask
-
-                if m_home.any():    # Contributions from home
-                    p_ijh = self._calculate_prob(theta_i, theta_j, hga)
-                    loglik += np.sum(home_wins[m_home] * log(p_ijh[m_home]))
-
-                if m_away.any():    # Contributions from away
-                    p_ija = self._calculate_prob(theta_i, theta_j, -hga)
-                    loglik += np.sum(away_wins[m_away] * log(p_ija[m_away]))
-            
-            # Contributions from neutral
-            p_iju = self._calculate_prob(theta_i, theta_j, 0.0)
-            loglik += np.sum(neut_wins[self._mask] * log(p_iju[self._mask]))
+                    loglik += home_wins * log(i_beats_j_home) + away_wins * log(i_beats_j_away) + neut_wins * log(i_beats_j_neut)
 
         return -loglik
 
@@ -618,7 +609,6 @@ class CHIBT(BaseHierarchicalBT):
                 for i in range(self.n_teams):
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         away_wins = cur_year["away"].iloc[i, j]
@@ -648,7 +638,6 @@ class CHIBT(BaseHierarchicalBT):
                     dummy = 0
                     for j in range(self.n_teams):
                         if i == j: continue
-                        if self.rel_mat.iloc[i, j] != level: continue
 
                         home_wins = cur_year["home"].iloc[i, j]
                         home_loss = cur_year["home"].iloc[j, i]
