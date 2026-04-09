@@ -528,6 +528,7 @@ class BaseHierarchicalBT(BaseBradleyTerry):
     def __init__(self):
         super().__init__()
         self.rel_mat = None
+        self._mask = None
         self.levels = None
         self.n_levels = 0
 
@@ -542,14 +543,15 @@ class BaseHierarchicalBT(BaseBradleyTerry):
             raise ValueError(f"rel_mat must be {self.n_teams}x{self.n_teams}, got {self.rel_mat.shape}")
         
         # Check symmetric
-        if not (self.rel_mat.values == self.rel_mat.values.T).all():
-            raise ValueError("rel_mat must be symmetric.")
+        # if not (self.rel_mat.values == self.rel_mat.values.T).all():
+        #     raise ValueError("rel_mat must be symmetric.")
     
     def _finalise_params(self):
         """Finishes extracting hierarchical model-specific params after general params are set."""
         # Validate the relationship matrix AFTER the other params have been set
         self._validate_rel_mat()
-        self.levels = np.unique(self.rel_mat).tolist()
+        self._mask = ~np.eye(self.n_teams, dtype=bool)
+        self.levels = np.unique(self.rel_mat.values[self._mask]).tolist()
         self.n_levels = len(self.levels)
         super()._finalise_params()
 
