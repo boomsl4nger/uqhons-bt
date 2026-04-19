@@ -221,10 +221,6 @@ class BaseBradleyTerry():
         Returns:
             self: Fitted model.
         """
-        # TODO maybe have method param, kwargs for passing options?
-        # TODO constrained optimisation for theta_1 = 0 (which gets rebased to theta_(1) = 0 later) 
-        # using the L-BFGS-B or similar
-
         self._set_data(data)
         return self._fit_model(verbose=verbose)
 
@@ -233,6 +229,9 @@ class BaseBradleyTerry():
         `_set_data`. This is separated because the hierarchical models require the rel mat. In
         practice, fitting should be done via the `fit` method.
         """
+        # TODO constrained optimisation for theta_1 = 0 (which gets rebased to theta_(1) = 0 later) 
+        # using the L-BFGS-B or similar
+
         initial_theta = np.zeros(self.n_params)
 
         result = minimize(
@@ -399,47 +398,61 @@ class BaseBradleyTerry():
     def _get_hga_param(self, team = None) -> float:
         raise NotImplementedError()
     
-    def get_ranking(self, sort_by: str = None, include_average: bool = True, include_errors: bool = False) -> DataFrame:
-        """
-        Gets the estimated team abilities for all years, with customisable sorting.
+    def get_ranking(
+            self, sort_by: Literal["Team", "Time", "Average"] = "Time", sort_time: str = None,
+            include_average: bool = True, include_errors: bool = False, mean_center: bool = False,
+            as_ranks: bool = False
+        ) -> DataFrame:
+        """Returns a neat DF of the team strengths in each time block, with various sorting options.
 
         Args:
-            sort_by (str): Specifies the column to sort the teams by. Options include:
-                        - Year (e.g. 1, 2020) to sort by a specific time block. TODO clean this...
-                        - 'Average' to sort by the average ability across all years.
-                        - 'Team' to sort alphabetically by team name.
-            include_average (bool): Whether to include an 'Average' column with the average ability across all years. Defaults to True.
-            include_errors (bool): Whether to include standard errors for the ability estimates. Defaults to False.
+            sort_by (str, optional): What to sort by. "Team" sorts alphabetically; "Time" sorts by block `sort_time`. Defaults to "Time".
+            sort_time (str, optional): Name of time block to sort by. Defaults to None.
+            include_average (bool, optional): If True, includes a column for the average strengths. Defaults to True.
+            include_errors (bool, optional): If True, includes SEs after each time column. Defaults to False.
+            mean_center (bool, optional): If True, subtracts average strength for each year. Defaults to False.
+            as_ranks (bool, optional): If True, replaces the strengths by their placements in each year. Defaults to False.
 
         Returns:
-            DataFrame: A DataFrame with team names and ability estimates for each year.
+            DataFrame: Team strengths for each year.
         """
         self._check_fitted()
 
         # Reshape to (I x T) matrix format
         n_strength_params = self.n_times * self.n_teams
         ability_matrix = self.params[:n_strength_params].reshape(self.n_times, self.n_teams).T
-        results_df = DataFrame(ability_matrix, index = self.teams, columns = self.times)
-        
-        # Add an average column for potential sorting usability
-        if include_average: results_df["Average"] = results_df.mean(axis=1)
+        rankings = DataFrame(ability_matrix, index = self.teams, columns = self.times)
 
-        # Optionally add standard errors
+        # Optional: mean-centering
+        if mean_center: rankings = rankings - rankings.mean(axis=0)
+
+        # Optional: use placement rankings
+        if as_ranks:
+            rankings = rankings.rank(axis=0, ascending=False, method="average")
+            include_errors = False  # SEs aren't meaningful now
+        
+        # Calculate averages for sorting
+        avgs = rankings.mean(axis=1)
+        if include_average: rankings["Average"] = avgs
+
+        # Optional: add standard errors
         if include_errors:
             if self.errors is None: self._calculate_errors()
             error_matrix = self.errors[:n_strength_params].reshape(self.n_times, self.n_teams).T
             for i, t in enumerate(self.times):
-                results_df.insert(i*2 + 1, f"[SE_{t}]", error_matrix[:, i])
+                rankings.insert(i*2 + 1, f"[SE_{t}]", error_matrix[:, i])
         
         if sort_by == "Team":
-            results_df = results_df.sort_index(ascending=True)
-        elif sort_by in results_df.columns or (sort_by == "Average" and include_average):
-            results_df = results_df.sort_values(by=sort_by, ascending=False)
-        else:
-            # Default sort_by is first time block
-            results_df = results_df.sort_values(by=results_df.columns[0], ascending=False)
+            rankings = rankings.sort_index(ascending=True)
+        elif sort_by == "Average":
+            rankings = rankings.loc[avgs.sort_values(ascending=False).index]
+        elif sort_by == "Time":
+            if sort_time is None: sort_time = self.times[0]     # Default sort time is first block
+            rankings = rankings.sort_values(by=sort_time, ascending=False)
+        else:   # Invalid sort type
+            raise ValueError("sort_by must be one of: 'Team', 'Time', 'Average'")
 
-        return results_df #.reset_index(names="Team")
+        return rankings #.reset_index(names="Team")
     
     def get_hgas(self, include_errors: bool = False, as_str: bool = False):
         """Return the home-ground parameter(s) of a model, such as in a Series or DataFrame."""
@@ -447,6 +460,8 @@ class BaseBradleyTerry():
     
     def summary(self, verbose: bool = True, print_summary: bool = True, sort_by: str = "Average", include_errors: bool = True, wrap_len: int = 100) -> str:
         """Return a string for a pretty printed summary of the model."""
+        # TODO docstring
+        # TODO multiple verbose levels
         # TODO include hierarchical model info
         self._check_fitted()
         stats = model_statistics(self)
