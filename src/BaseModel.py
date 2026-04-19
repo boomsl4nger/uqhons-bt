@@ -14,6 +14,7 @@ from hypothesis_tests import model_statistics
 # TODO naming for odds (when it's actually log-odds)
 # TODO type hint fields? eg self.data: dict, self.teams: list
 # TODO consider making a wrapper for fully dynamic models
+
 class BaseBradleyTerry():
     """Abstract base class for our Bradley-Terry models. Mainly specifies the methods that each 
     model will need to implement, such as the log-likelihood function.
@@ -458,11 +459,26 @@ class BaseBradleyTerry():
         """Return the home-ground parameter(s) of a model, such as in a Series or DataFrame."""
         raise NotImplementedError()
     
-    def summary(self, verbose: bool = True, print_summary: bool = True, sort_by: str = "Average", include_errors: bool = True, wrap_len: int = 100) -> str:
-        """Return a string for a pretty printed summary of the model."""
-        # TODO docstring
-        # TODO multiple verbose levels
-        # TODO include hierarchical model info
+    def summary(
+            self, verbose: int = 2, include_errors: bool = True,
+            print_summary: bool = True, sort_by: str = "Average", wrap_len: int = 100
+        ) -> str:
+        """Print a string for a nicely formatted summary of the model.
+
+        Args:
+            verbose (int, optional): Verbosity level. Defaults to 2.
+                - 0: only prints model metadata.
+                - 1: adds average strengths and HGA parameters.
+                - 2: adds all strength parameters.
+            include_errors (bool, optional): If True, adds errors to strength output. Defaults to True.
+            print_summary (bool, optional): If True, prints the summary. Defaults to True.
+            sort_by (str, optional): See `get_ranking()`. Defaults to "Average".
+            wrap_len (int, optional): Char length to wrap text. Defaults to 100.
+
+        Returns:
+            str: Model summary.
+        """
+        # TODO print n_levels or some other HIE consideration
         self._check_fitted()
         stats = model_statistics(self)
         padding_bar = "=" * wrap_len
@@ -486,9 +502,10 @@ class BaseBradleyTerry():
         if verbose:
             s += f"\n{'Team Rankings'}\n"
             s += f"{padding_bar_short}\n"
-            ranking_df = self.get_ranking(sort_by=sort_by, include_errors=include_errors).round(3)
-            longest_col_name = max([len(str(col)) for col in ranking_df.columns])
-            s += ranking_df.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
+            rankings = self.get_ranking(sort_by=sort_by, include_errors=include_errors).round(3)
+            if verbose == 2: rankings = rankings["Average"]
+            longest_col_name = max([len(str(col)) for col in rankings.columns])
+            s += rankings.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
 
             hga_str = self.get_hgas(as_str=True, include_errors=include_errors)
             if hga_str:
@@ -533,7 +550,7 @@ class BaseBradleyTerry():
 
     def __repr__(self):
         return f"{self.__class__.__name__}()"
-    
+
 
 class BaseHierarchicalBT(BaseBradleyTerry):
     """Base class for Hierarchical Bradley-Terry models. 
@@ -556,10 +573,6 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         # Check square matrix
         if self.rel_mat.shape != (self.n_teams, self.n_teams):
             raise ValueError(f"rel_mat must be {self.n_teams}x{self.n_teams}, got {self.rel_mat.shape}")
-        
-        # Check symmetric
-        # if not (self.rel_mat.values == self.rel_mat.values.T).all():
-        #     raise ValueError("rel_mat must be symmetric.")
     
     def _finalise_params(self):
         """Finishes extracting hierarchical model-specific params after general params are set."""
