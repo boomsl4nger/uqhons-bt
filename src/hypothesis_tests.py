@@ -92,8 +92,10 @@ def compare_deviances(m1, m2) -> dict:
 def is_nested(m1, m2) -> bool:
     """Check if model M1 is nested in model M2 based on our Bradley-Terry model relationships.
     Considers both order effect and temporal complexity.
-    The order effects nestedness hierarchy is:
-    `VANBT > CHABT > (CHIBT OR TSABT) > TSIBT`
+
+    The order effects nestedness is:
+    `VANBT > CHABT > TSABT`
+    Nestedness for the HIEBT models is non-trivial.
 
     Args:
         m1: Null model.
@@ -102,6 +104,7 @@ def is_nested(m1, m2) -> bool:
     Returns:
         bool: True if M1 is nested in M2, otherwise False.
     """
+    # TODO: add nestedness checking for generic HIE models
     ranks = {"VANBT": 0, "CHABT": 1, "CHIBT": 2, "TSABT": 2, "TSIBT": 3}
     m1_name = m1.__class__.__name__
     m2_name = m2.__class__.__name__
@@ -130,6 +133,7 @@ def simple_report(m1, m2, print_report: bool = True, wrap_len: int = 85) -> dict
     Returns:
         dict: Results containing `"m1", "m2", "lrt"`. Each model contains `"name", "aic", "bic"`.
     """
+    # TODO rename to "anova" or similar
     # TODO allow for multiple models to be passed
     results = {}
     for i, model in enumerate([m1, m2]):
