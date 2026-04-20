@@ -12,13 +12,10 @@ from BaseModel import BaseBradleyTerry
 from DynamicModel import *
 
 RANDOM_SEED = 888
+GREY = (0.7, 0.7, 0.7)
 
 
 ## BT model wrapper(s)
-# TODO ranks option: ranks = strengths.rank(ascending=False)
-# TODO refactor to be methods for each model for polymorphism
-# TODO docstrings
-
 def plot_strengths(
         model: BaseBradleyTerry, plot_type: Literal["dynamic", "average", "grid"] = "dynamic", **kwargs
     ) -> Axes:
@@ -43,80 +40,91 @@ def plot_strengths(
 
 def _plot_strengths_van(
         model: VANBT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        n_grid_cols: int = 4
+        n_grid_cols: int = 4, mean_centered: bool = True
     ) -> Axes:
     if plot_type == "average":
         rankings = model.get_ranking("Team")["Average"].sort_values()
-        ax = _plot_strengths_static(rankings)
+        ax = plot_strengths_static(rankings)
     else:
-        rankings = model.get_ranking("Team", include_average=False)
+        rankings = model.get_ranking("Team", mean_center=mean_centered, include_average=False)
         if plot_type == "grid":
-            ax = _plot_strengths_dynamic_indiv(rankings, col_wrap=n_grid_cols)
+            ax = plot_strengths_dynamic_indiv(rankings, col_wrap=n_grid_cols)
         else:
-            ax = _plot_strengths_dynamic(rankings)
+            ax = plot_strengths_dynamic(rankings)
+            ax.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
 
     return ax
 
 def _plot_strengths_cha(
         model: CHABT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        n_grid_cols: int = 4
+        n_grid_cols: int = 4, mean_centered: bool = True
     ) -> Axes:
     hga = model.get_hgas()["HGA"].values[0]
     if plot_type == "average":
         rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
         rankings["Home"] = rankings["Away"] + hga
         rankings.sort_values("Away", inplace=True)
-        ax = _plot_strengths_static(rankings)
+        ax = plot_strengths_static(rankings)
     else:
-        rankings = model.get_ranking("Team", include_average=False)
+        rankings = model.get_ranking("Team", mean_center=mean_centered, include_average=False)
         if plot_type == "grid":
-            ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
+            ax = plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
         else:
-            ax = _plot_strengths_dynamic(rankings, hga)
+            ax = plot_strengths_dynamic(rankings, hga)
+            ax.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
 
     return ax
 
 def _plot_strengths_tsa(
         model: TSABT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        n_grid_cols: int = 4, figsize: tuple = (14, 6), legend_loc: tuple = (-0.15, 1)
+        n_grid_cols: int = 4, mean_centered: bool = True
     ) -> Axes:
     hga = model.get_hgas()["HGA"]
     if plot_type == "average":
         rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
         rankings["Home"] = rankings["Away"] + hga
         rankings.sort_values("Away", inplace=True)
-        ax = _plot_strengths_static(rankings)
+        ax = plot_strengths_static(rankings)
     else:
-        rankings = model.get_ranking("Team", include_average=False)
+        rankings = model.get_ranking("Team", mean_center=mean_centered, include_average=False)
         if plot_type == "grid":
-            ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
+            ax = plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
         else:
-            # Plotting twice: baseline strengths then home-boosted strengths
-            first_year = sorted(rankings.columns)[0]
-            hue_order = rankings[first_year].sort_values(ascending=False).index.tolist()
+            ax = plot_strengths_dynamic(rankings)
+            ax.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
 
-            fig, ax = plt.subplots(ncols=2, figsize=figsize, sharey=True, sharex=True)
-
-            # Baseline
-            ax1 = _plot_strengths_dynamic(rankings, hue_order=hue_order, ax=ax[0])
-            ax1.set_title("Away")
-
-            handles, labels = ax1.get_legend_handles_labels()
+            # Add HGAs to legend
+            handles, labels = ax.get_legend_handles_labels()
             new_labels = [f"{team} ({hga.loc[team]:.2f})" for team in labels]
-            ax1.legend(handles, new_labels, title="Team (HGA)")
-            sns.move_legend(ax1, "upper right", bbox_to_anchor=legend_loc)
+            ax.legend(handles, new_labels, title="Team (HGA)")
 
-            # Home-boosted
-            ax2 = _plot_strengths_dynamic(rankings.add(hga, axis=0), hue_order=hue_order, ax=ax[1])
-            ax2.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
-            ax2.set_title("Home")
-            ax2.get_legend().remove()
+            # TODO: for now, just plot the strengths and leave it to the user to plot the hgas
+            # # Plotting twice: baseline strengths then home-boosted strengths
+            # first_year = sorted(rankings.columns)[0]
+            # hue_order = rankings[first_year].sort_values(ascending=False).index.tolist()
+
+            # fig, ax = plt.subplots(ncols=2, figsize=figsize, sharey=True, sharex=True)
+
+            # # Baseline
+            # ax1 = plot_strengths_dynamic(rankings, hue_order=hue_order, ax=ax[0])
+            # ax1.set_title("Away")
+
+            # handles, labels = ax1.get_legend_handles_labels()
+            # new_labels = [f"{team} ({hga.loc[team]:.2f})" for team in labels]
+            # ax1.legend(handles, new_labels, title="Team (HGA)")
+            # sns.move_legend(ax1, "upper right", bbox_to_anchor=legend_loc)
+
+            # # Home-boosted
+            # ax2 = plot_strengths_dynamic(rankings.add(hga, axis=0), hue_order=hue_order, ax=ax[1])
+            # ax2.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
+            # ax2.set_title("Home")
+            # ax2.get_legend().remove()
 
     return ax
 
 def _plot_strengths_chi(
         model: HIEBT, plot_type: Literal["dynamic", "average", "grid"] = "dynamic",
-        n_grid_cols: int = 4
+        n_grid_cols: int = 4, mean_centered: bool = True
     ) -> Axes:
     # TODO think about generic plotting support for HIE models...
     hga = model.get_hgas()["HGA"]
@@ -125,13 +133,14 @@ def _plot_strengths_chi(
         for level in model.levels:
             rankings[f"Home_{level}"] = rankings["Away"] + hga[level]
         rankings.sort_values("Away", inplace=True)
-        ax = _plot_strengths_static(rankings)
+        ax = plot_strengths_static(rankings)
     else:
-        rankings = model.get_ranking("Team", include_average=False)
+        rankings = model.get_ranking("Team", mean_center=mean_centered, include_average=False)
         if plot_type == "grid":
-            ax = _plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
+            ax = plot_strengths_dynamic_indiv(rankings, hga, col_wrap=n_grid_cols)
         else:
-            ax = _plot_strengths_dynamic(rankings, hga)
+            ax = plot_strengths_dynamic(rankings, hga)
+            ax.axhline(0, linestyle="--", alpha=0.3, c="k", zorder=1)
 
     return ax
 
@@ -209,7 +218,7 @@ def _add_hga_scalebar(ax, hga: float | Series):
     ax.add_artist(anchored_box)
 
 
-def _plot_strengths_dynamic(ranking: DataFrame, hga: float | Series = None, hue_order: list = None, add_markers: bool = False, ax: Axes = None) -> Axes:
+def plot_strengths_dynamic(ranking: DataFrame, hga: float | Series = None, hue_order: list = None, add_markers: bool = False, ax: Axes = None) -> Axes:
     # Legend ordering
     if hue_order is not None and not all(team in ranking.index for team in hue_order):
         raise ValueError(f"Teams in hue_order not found in ranking index!")
@@ -236,19 +245,18 @@ def _plot_strengths_dynamic(ranking: DataFrame, hga: float | Series = None, hue_
     return ax
 
 
-def _plot_strengths_dynamic_indiv(ranking: DataFrame, errors: DataFrame = None, hga: float | Series = None, col_wrap: int = 4) -> FacetGrid:
+def plot_strengths_dynamic_indiv(ranking: DataFrame, errors: DataFrame = None, hga: float | Series = None, col_wrap: int = 4) -> FacetGrid:
     # Plot team strengths
     rank_long = ranking.reset_index(names="Team").melt(id_vars=["Team"], var_name="Year", value_name="Strength")
     g = sns.FacetGrid(rank_long, col="Team", col_wrap=col_wrap)
     g.map_dataframe(sns.lineplot, x="Year", y="Strength", marker="o", linewidth=1)
 
     g.set_axis_labels("Time", "Strength")
-    # TODO x ticks are not integers
 
     return g
 
 
-def _plot_strengths_static(ranking: Series | DataFrame, ax: Axes = None) -> Axes:
+def plot_strengths_static(ranking: Series | DataFrame, ax: Axes = None) -> Axes:
     if ax is None: ax = plt.gca()
 
     y = np.arange(len(ranking))
@@ -274,7 +282,6 @@ def _plot_strengths_static(ranking: Series | DataFrame, ax: Axes = None) -> Axes
 
 ## Other plotting fns
 def make_competition_graph(data: DataFrame):
-    # Set up the graph
     G = nx.DiGraph()
     teams = data.index.tolist()
     G.add_nodes_from(teams)
@@ -288,7 +295,8 @@ def make_competition_graph(data: DataFrame):
     return G
 
 def plot_competition_graph(data: DataFrame):
-    # TODO See: https://networkx.org/documentation/stable/index.html
+    # See: https://networkx.org/documentation/stable/index.html
+    # TODO improve graph viz or use another library, low priority
     G = make_competition_graph(data)
     pos = nx.spring_layout(G, seed=RANDOM_SEED)  # force-directed layout
     weights = [G[u][v]["weight"] for u, v in G.edges]
@@ -349,4 +357,60 @@ def plot_hessian(mod: BaseBradleyTerry, diff: bool = False):
         sns.heatmap(num_hess, annot=True, fmt=".1f")
         plt.title("Numeric")
 
-# TODO add relmat plotting fns
+def _get_single_relmat_cmap(K, shuffle = False, seed = 0, grey = GREY):
+    palette = list(sns.color_palette("husl", K))
+    if shuffle:
+        np.random.default_rng(seed).shuffle(palette)
+    start = [grey,]
+    start.extend(palette)
+    return start
+
+def plot_single_relmat(relmat, figsize = (10,10), title = None):
+    plt.figure(figsize=figsize)
+    sns.heatmap(
+        relmat,
+        annot=True,
+        fmt="g",
+        linewidths=0.5,
+        cmap=_get_single_relmat_cmap(len(np.unique(relmat)) - 1),
+        cbar=False,
+        square=True
+    )
+    if title: plt.title(title)
+    plt.xlabel("Away")
+    plt.ylabel("Home")
+
+def plot_relmat_grid(relmats, titles, ncols=3, seed=0, n_colours=None, shuffle_colours=True, scale=1, annot=True):
+    n = len(relmats)
+    nrows = int(np.ceil(n / ncols))
+
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=(4*ncols*scale, 4*nrows*scale))
+    axes = axes.flatten()
+
+    vmax = max(mat.values.max() for mat in relmats)
+    if n_colours is None: n_colours = max([len(np.unique(relmat)) for relmat in relmats]) - 1
+    cmap = _get_single_relmat_cmap(n_colours, shuffle=shuffle_colours, seed=seed)
+
+    for ax, mat, title in zip(axes, relmats, titles):
+        sns.heatmap(
+            mat,
+            annot=annot,
+            fmt="g",
+            linewidths=0.5,
+            # cmap=sns.color_palette("husl", 31),
+            cmap=cmap,
+            cbar=False,
+            square=True,
+            ax=ax,
+            vmin=0, vmax=vmax
+        )
+        ax.set_title(title)
+        ax.set_xlabel("Away")
+        ax.set_ylabel("Home")
+
+    # remove unused axes
+    for ax in axes[len(relmats):]:
+        ax.axis("off")
+
+    plt.tight_layout()
+    return fig, axes
