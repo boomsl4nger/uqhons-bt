@@ -39,6 +39,7 @@ class BaseBradleyTerry():
         # Constraints and edge case params
         self._constraint_team_idx = 0
         self.inactive_teams = defaultdict(list)
+        self._inactive_idxs = None
         self.global_teams = None
 
         # Model fit items
@@ -161,13 +162,24 @@ class BaseBradleyTerry():
         
         # Finally... set the reference team to be alphabetically first global team
         self._constraint_team_idx = self.teams.index(self.global_teams[0])
+
+    def _find_inactive_idxs(self):
+        """Determine which parameter vector indices are inactive (i.e., reference team or missing)."""
+        ref_team_idxs = [self._get_strength_idx(self._constraint_team_idx, t) for t in range(self.n_times)]
+        inactive_team_idxs = [
+            self._get_strength_idx(self.teams.index(team), self.times.index(t)) 
+            for team, times in self.inactive_teams.items() 
+            for t in times
+        ]
+        return np.unique(ref_team_idxs + inactive_team_idxs)
                 
     def _finalise_params(self):
         """Default setting number of parameters."""
+        self._inactive_idxs = self._find_inactive_idxs()
         self.n_params = self.get_n_params()
         n_inactive_params = len([(team, t) for team, times in self.inactive_teams.items() for t in times])
         self.n_params_active = self.n_params - self.n_times - n_inactive_params
-    
+
     def _check_fitted(self):
         """Check if the model parameters have been fit, and raises an exception if not."""
         if self.params is None:
@@ -231,22 +243,34 @@ class BaseBradleyTerry():
         `_set_data`. This is separated because the hierarchical models require the rel mat. In
         practice, fitting should be done via the `fit` method.
         """
-        # TODO constrained optimisation for theta_1 = 0 (which gets rebased to theta_(1) = 0 later) 
-        # using the L-BFGS-B or similar
+        # mask for active parameters
+        active_mask = np.ones(self.n_params, dtype=bool)
+        active_mask[self._inactive_idxs] = False
 
-        initial_theta = np.zeros(self.n_params)
+        def expand(theta_active):
+            theta_full = np.zeros(self.n_params)
+            theta_full[active_mask] = theta_active
+            return theta_full
+
+        def fun(theta_active):
+            return self._log_likelihood(expand(theta_active))
+
+        def jac(theta_active):
+            full_grad = self._score(expand(theta_active))
+            return full_grad[active_mask]
+        
+        # initial guess only for active params, TODO better initialisation
+        x0 = np.zeros(active_mask.sum())
 
         result = minimize(
-            fun = self._log_likelihood,
-            x0 = initial_theta,
+            fun = fun, jac = jac, x0 = x0,
             method = "BFGS",
-            jac = self._score,
             options = {"disp": verbose}
         )
 
         self._fit_summary = result
         if result.success:
-            self.params = result.x
+            self.params = expand(result.x)
             self.rebase_abilities()
             if verbose:
                 print("Successfully fit model parameters.\n")
@@ -299,6 +323,8 @@ class BaseBradleyTerry():
         ]
         self.params[inactive_idxs] = np.nan
 
+        self._inactive_idxs = self._find_inactive_idxs()
+
         # Check if we need to rebase errors
         if self.errors is not None:
             self._calculate_errors()
@@ -316,23 +342,14 @@ class BaseBradleyTerry():
         # Standard errors are the sqrts of diagonal elements (obs Fisher approximates covariance mat)
         # Finally, just set the zeroed parameter SE to zero itself
 
-        # Removing: reference team AND inactive team strength params
-        ref_team_idxs = [self._get_strength_idx(self._constraint_team_idx, t) for t in range(self.n_times)]
-        inactive_team_idxs = [
-            self._get_strength_idx(self.teams.index(team), self.times.index(t)) 
-            for team, times in self.inactive_teams.items() 
-            for t in times
-        ]
-
-        remove_idx = np.unique(ref_team_idxs + inactive_team_idxs)
         params_swap_nan_zero = [i if not np.isnan(i) else 0.0 for i in self.params]
         hess = self._hessian(params_swap_nan_zero)
-        hess_reduced = np.delete(np.delete(hess, remove_idx, axis=0), remove_idx, axis=1)
+        hess_reduced = np.delete(np.delete(hess, self._inactive_idxs, axis=0), self._inactive_idxs, axis=1)
 
         try:
             self._hess_inv = np.linalg.inv(hess_reduced)
             self.errors = np.sqrt(np.maximum(np.diag(self._hess_inv), 0)) # Maximum to prevent rare nans
-            for idx in sorted(remove_idx):
+            for idx in sorted(self._inactive_idxs):
                 self.errors = np.insert(self.errors, idx, np.nan)
         except np.linalg.LinAlgError:
             raise RuntimeError("Cannot calculate standard errors: Hessian is singular.")
@@ -508,9 +525,12 @@ class BaseBradleyTerry():
             s += f"\n{'Team Rankings'}\n"
             s += f"{padding_bar_short}\n"
             rankings = self.get_ranking(sort_by=sort_by, include_errors=include_errors).round(3)
-            if verbose == 2: rankings = rankings["Average"]
-            longest_col_name = max([len(str(col)) for col in rankings.columns])
-            s += rankings.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
+            if verbose == 1: 
+                rankings = rankings["Average"]
+                s += rankings.to_string() + "\n"
+            else:
+                longest_col_name = max([len(str(col)) for col in rankings.columns])
+                s += rankings.to_string(col_space=longest_col_name, line_width=wrap_len) + "\n"
 
             hga_str = self.get_hgas(as_str=True, include_errors=include_errors)
             if hga_str:
