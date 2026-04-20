@@ -45,6 +45,7 @@ class BaseBradleyTerry():
         self.params = None
         self.n_params = 0
         self.n_params_active = 0
+        self._rel_mat = None
         self._fit_summary = None
         self._hess_inv = None
         self.errors = None
@@ -358,6 +359,10 @@ class BaseBradleyTerry():
         """Get the number of parameters in the model."""
         raise NotImplementedError()
     
+    def _get_rel_mat(self) -> ndarray:
+        """Get the (implicit) relationship matrix for the model. Needed for checking nestedness."""
+        raise NotImplementedError()
+    
     def _get_strength_idx(self, i, t) -> int:
         """Get the parameter vector index of a team strength.
 
@@ -559,27 +564,27 @@ class BaseHierarchicalBT(BaseBradleyTerry):
     """
     def __init__(self):
         super().__init__()
-        self.rel_mat = None
+        self._rel_mat = None
         self._mask = None
         self.levels = None
         self.n_levels = 0
 
     def _set_data(self, data: dict, rel_mat: DataFrame):
-        self.rel_mat = rel_mat
+        self._rel_mat = rel_mat
         super()._set_data(data)
 
     def _validate_rel_mat(self):
         """Validate the relationship matrix, which must have been set already to `self.rel_mat`"""
         # Check square matrix
-        if self.rel_mat.shape != (self.n_teams, self.n_teams):
-            raise ValueError(f"rel_mat must be {self.n_teams}x{self.n_teams}, got {self.rel_mat.shape}")
+        if self._rel_mat.shape != (self.n_teams, self.n_teams):
+            raise ValueError(f"rel_mat must be {self.n_teams}x{self.n_teams}, got {self._rel_mat.shape}")
     
     def _finalise_params(self):
         """Finishes extracting hierarchical model-specific params after general params are set."""
         # Validate the relationship matrix AFTER the other params have been set
         self._validate_rel_mat()
         self._mask = ~np.eye(self.n_teams, dtype=bool)
-        self.levels = np.unique(self.rel_mat.values[self._mask]).tolist()
+        self.levels = np.unique(self._rel_mat.values[self._mask]).tolist()
         self.n_levels = len(self.levels)
         super()._finalise_params()
 
@@ -601,9 +606,6 @@ class BaseHierarchicalBT(BaseBradleyTerry):
         """
         self._set_data(data, rel_mat)
         return self._fit_model(verbose=verbose)
-
-    def _get_hierarchy(self):
-        return self.rel_mat
     
     def get_levels(self):
         return self.levels
@@ -611,10 +613,13 @@ class BaseHierarchicalBT(BaseBradleyTerry):
     def get_n_levels(self):
         return self.n_levels
     
-    def _get_hga_param(self, team = None, level = None) -> float:
-        raise NotImplementedError()
+    def _get_rel_mat(self) -> ndarray:
+        return self._rel_mat.values
     
     def get_relationship(self, i, j):
         i_idx = self.teams.index(i)
         j_idx = self.teams.index(j)
-        return self.rel_mat[i_idx][j_idx]
+        return self._rel_mat[i_idx][j_idx]
+
+    def _get_hga_param(self, team = None, level = None) -> float:
+        raise NotImplementedError()

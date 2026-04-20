@@ -1,3 +1,4 @@
+import numpy as np
 from numpy import log
 from scipy.stats import chi2
 
@@ -104,24 +105,23 @@ def is_nested(m1, m2) -> bool:
     Returns:
         bool: True if M1 is nested in M2, otherwise False.
     """
-    # TODO: add nestedness checking for generic HIE models
-    ranks = {"VANBT": 0, "CHABT": 1, "CHIBT": 2, "TSABT": 2, "TSIBT": 3}
-    m1_name = m1.__class__.__name__
-    m2_name = m2.__class__.__name__
-    
-    if m1_name not in ranks or m2_name not in ranks:
-        raise ValueError(f"Unknown model types: {m1_name}, {m2_name}")
+    if m1.n_times > m2.n_times:
+        return False
 
-    # A model M1 is nested in M2 if:
-    # 1. Temporal: M1 has no more time blocks than M2.
-    # 2. Structural: M1 rank <= M2 rank AND they aren't parallel.
-    # 3. Identifiability: They aren't the exact same model.
-    
-    time_nested = m1.n_times <= m2.n_times
-    struct_nested = (ranks[m1_name] <= ranks[m2_name]) and not (ranks[m1_name] == ranks[m2_name] and m1_name != m2_name)
-    is_not_identical = not (m1_name == m2_name and m1.n_times == m2.n_times)
+    mask = ~np.eye(m1.n_teams, dtype=bool)
+    R1 = m1._get_rel_mat()[mask]
+    R2 = m2._get_rel_mat()[mask]
 
-    return time_nested and struct_nested and is_not_identical
+    # HIE nestedness: check coarser partition
+    for lvl in np.unique(R2):
+        idx = (R2 == lvl)
+        if len(np.unique(R1[idx])) > 1:
+            return False
+
+    if np.array_equal(R1, R2) and m1.n_times == m2.n_times:
+        return False
+
+    return True
 
 def simple_report(m1, m2, print_report: bool = True, wrap_len: int = 85) -> dict:
     """Run a basic test suite for two given BT models.

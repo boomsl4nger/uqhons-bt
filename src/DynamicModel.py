@@ -4,7 +4,6 @@ from pandas import DataFrame
 from BaseModel import BaseBradleyTerry, BaseHierarchicalBT
 
 # TODO look into sparse matrices for data (and justify)
-# TODO can we be a bit radical and just use the TSI model with special cases?
 class VANBT(BaseBradleyTerry):
     """Class for a dyanmic 'vanilla' (VAN) Bradley-Terry model.
 
@@ -58,7 +57,7 @@ class VANBT(BaseBradleyTerry):
         return -score
 
     def _hessian(self, params: ndarray) -> ndarray:
-        # TODO can we save time by using the Hessians' symmetry?
+        # TODO can we save time by using the Hessians' symmetry? fit method that uses hess info?
         # TODO also vectorise ops for speed, try to combine for loops if run time is too long...
         hess = np.zeros((self.n_params, self.n_params))
         for t, year in enumerate(self.times):
@@ -86,6 +85,9 @@ class VANBT(BaseBradleyTerry):
 
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times
+
+    def _get_rel_mat(self) -> ndarray:
+        return np.zeros((self.n_teams, self.n_teams), dtype=int)
     
     def _get_hga_param(self, team=None, level=None):
         raise ValueError("VANBT model has no home-ground advantage parameters.")
@@ -267,6 +269,11 @@ class CHABT(BaseBradleyTerry):
 
     def get_n_params(self) -> int:
         return self.n_teams * self.n_times + 1
+    
+    def _get_rel_mat(self) -> ndarray:
+        mat = np.ones((self.n_teams, self.n_teams), dtype=int)
+        np.fill_diagonal(mat, 0)
+        return mat
     
     def get_hgas(self, include_errors: bool = False, as_str: bool = False):
         hga = DataFrame(self.get_param("hga"), index=["Common"], columns=["HGA"])
@@ -460,6 +467,11 @@ class TSABT(BaseBradleyTerry):
     def get_n_params(self) -> int:
         return self.n_teams * (self.n_times + 1)
     
+    def _get_rel_mat(self) -> ndarray:
+        mat = np.tile(np.arange(1, self.n_teams + 1)[:, None], (1, self.n_teams))
+        np.fill_diagonal(mat, 0)
+        return mat
+    
     def get_hgas(self, include_errors: bool = False, as_str: bool = False):
         hgas = DataFrame(self.params[-self.n_teams:], index=self.teams, columns=["HGA"])
         if include_errors:
@@ -497,8 +509,8 @@ class HIEBT(BaseHierarchicalBT):
 
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    hga_ij = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[i, j]))]
-                    hga_ji = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[j, i]))]
+                    hga_ij = params[self._get_hga_idx(self.levels.index(self._rel_mat.iloc[i, j]))]
+                    hga_ji = params[self._get_hga_idx(self.levels.index(self._rel_mat.iloc[j, i]))]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_ij)
                     i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga_ji)
                     i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
@@ -555,8 +567,8 @@ class HIEBT(BaseHierarchicalBT):
 
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    hga_ij = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[i, j]))]
-                    hga_ji = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[j, i]))]
+                    hga_ij = params[self._get_hga_idx(self.levels.index(self._rel_mat.iloc[i, j]))]
+                    hga_ji = params[self._get_hga_idx(self.levels.index(self._rel_mat.iloc[j, i]))]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_ij)
                     i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga_ji)
                     i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
@@ -581,8 +593,8 @@ class HIEBT(BaseHierarchicalBT):
                         away_wins = cur_year["away"].iloc[i, j]
                         theta_it = params[self._get_strength_idx(i, t)]
                         theta_jt = params[self._get_strength_idx(j, t)]
-                        level_ij = self.rel_mat.iloc[i, j]
-                        level_ji = self.rel_mat.iloc[j, i]
+                        level_ij = self._rel_mat.iloc[i, j]
+                        level_ji = self._rel_mat.iloc[j, i]
 
                         if level_ij == level:
                             p_home = self._calculate_prob(theta_it, theta_jt, hga)
@@ -614,8 +626,8 @@ class HIEBT(BaseHierarchicalBT):
 
                     theta_it = params[self._get_strength_idx(i, t)]
                     theta_jt = params[self._get_strength_idx(j, t)]
-                    hga_ij = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[i, j]))]
-                    hga_ji = params[self._get_hga_idx(self.levels.index(self.rel_mat.iloc[j, i]))]
+                    hga_ij = params[self._get_hga_idx(self.levels.index(self._rel_mat.iloc[i, j]))]
+                    hga_ji = params[self._get_hga_idx(self.levels.index(self._rel_mat.iloc[j, i]))]
                     i_beats_j_home = self._calculate_prob(theta_it, theta_jt, hga_ij)
                     i_beats_j_away = self._calculate_prob(theta_it, theta_jt, -hga_ji)
                     i_beats_j_neut = self._calculate_prob(theta_it, theta_jt, 0)
@@ -646,8 +658,8 @@ class HIEBT(BaseHierarchicalBT):
                         theta_it = params[self._get_strength_idx(i, t)]
                         theta_jt = params[self._get_strength_idx(j, t)]
 
-                        level_ij = self.rel_mat.iloc[i, j]
-                        level_ji = self.rel_mat.iloc[j, i]
+                        level_ij = self._rel_mat.iloc[i, j]
+                        level_ji = self._rel_mat.iloc[j, i]
 
                         if level_ij == level:
                             p_home = self._calculate_prob(theta_it, theta_jt, hga)
@@ -677,8 +689,8 @@ class HIEBT(BaseHierarchicalBT):
                         theta_it = params[self._get_strength_idx(i, t)]
                         theta_jt = params[self._get_strength_idx(j, t)]
 
-                        level_ij = self.rel_mat.iloc[i, j]
-                        level_ji = self.rel_mat.iloc[j, i]
+                        level_ij = self._rel_mat.iloc[i, j]
+                        level_ji = self._rel_mat.iloc[j, i]
 
                         if level_ij == level:
                             p_home = self._calculate_prob(theta_it, theta_jt, hga)
@@ -714,5 +726,5 @@ class HIEBT(BaseHierarchicalBT):
         return hgas
     
     def _get_venue_map(self, i, j):
-        k = self.rel_mat.loc[i, j]
+        k = self._rel_mat.loc[i, j]
         return {"home": self._get_hga_idx(k), "neutral": 0, "away": -self._get_hga_idx(k)}
