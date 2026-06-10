@@ -43,7 +43,7 @@ def _plot_strengths_van(
         n_grid_cols: int = 4, mean_centered: bool = True
     ) -> Axes:
     if plot_type == "average":
-        rankings = model.get_ranking("Team")["Average"].sort_values()
+        rankings = model.get_ranking("Team", mean_center=mean_centered)["Average"].sort_values()
         ax = plot_strengths_static(rankings)
     else:
         rankings = model.get_ranking("Team", mean_center=mean_centered, include_average=False)
@@ -61,7 +61,7 @@ def _plot_strengths_cha(
     ) -> Axes:
     hga = model.get_hgas()["HGA"].values[0]
     if plot_type == "average":
-        rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
+        rankings = model.get_ranking("Team", mean_center=mean_centered)["Average"].rename("Away").to_frame()
         rankings["Home"] = rankings["Away"] + hga
         rankings.sort_values("Away", inplace=True)
         ax = plot_strengths_static(rankings)
@@ -81,7 +81,7 @@ def _plot_strengths_tsa(
     ) -> Axes:
     hga = model.get_hgas()["HGA"]
     if plot_type == "average":
-        rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
+        rankings = model.get_ranking("Team", mean_center=mean_centered)["Average"].rename("Away").to_frame()
         rankings["Home"] = rankings["Away"] + hga
         rankings.sort_values("Away", inplace=True)
         ax = plot_strengths_static(rankings)
@@ -129,7 +129,7 @@ def _plot_strengths_chi(
     # TODO think about generic plotting support for HIE models...
     hga = model.get_hgas()["HGA"]
     if plot_type == "average":
-        rankings = model.get_ranking("Team")["Average"].rename("Away").to_frame()
+        rankings = model.get_ranking("Team", mean_center=mean_centered)["Average"].rename("Away").to_frame()
         for level in model.levels:
             rankings[f"Home_{level}"] = rankings["Away"] + hga[level]
         rankings.sort_values("Away", inplace=True)
@@ -149,7 +149,7 @@ def _plot_strengths_chi(
 
 def _add_hga_scalebar(ax, hga: float | Series):
     # See: https://matplotlib.org/stable/api/offsetbox_api.html
-    # TODO See: https://pypi.org/project/matplotlib-scalebar/
+    # See: https://pypi.org/project/matplotlib-scalebar/
 
     from mpl_toolkits.axes_grid1.anchored_artists import AnchoredOffsetbox
     from matplotlib.offsetbox import AuxTransformBox, VPacker, HPacker, TextArea
@@ -365,16 +365,23 @@ def _get_single_relmat_cmap(K, shuffle = False, seed = 0, grey = GREY):
     start.extend(palette)
     return start
 
-def plot_single_relmat(relmat, figsize = (10,10), title = None):
+def plot_single_relmat(relmat, figsize = (10,10), title = None, fontsize = None, n_colours=None, shuffle_colours=True, seed=0):
+    vmax = relmat.values.max()
+    if n_colours is None: n_colours = len(np.unique(relmat)) - 1
+    cmap = _get_single_relmat_cmap(n_colours, shuffle=shuffle_colours, seed=seed)
+
     plt.figure(figsize=figsize)
     sns.heatmap(
         relmat,
         annot=True,
         fmt="g",
         linewidths=0.5,
-        cmap=_get_single_relmat_cmap(len(np.unique(relmat)) - 1),
+        # cmap=_get_single_relmat_cmap(len(np.unique(relmat)) - 1),
+        vmin=0, vmax=vmax,
+        cmap=cmap,
         cbar=False,
-        square=True
+        square=True,
+        annot_kws={"size":fontsize} if fontsize else None
     )
     if title: plt.title(title)
     plt.xlabel("Away")
@@ -412,5 +419,5 @@ def plot_relmat_grid(relmats, titles, ncols=3, seed=0, n_colours=None, shuffle_c
     for ax in axes[len(relmats):]:
         ax.axis("off")
 
-    plt.tight_layout()
+    # plt.tight_layout()
     return fig, axes

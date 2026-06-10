@@ -27,7 +27,7 @@ def make_win_matrix(df: DataFrame) -> DataFrame:
     Returns:
         DataFrame: Win matrix.
     """
-    teams = np.unique(df.iloc[:, 0:1].values.ravel())
+    teams = sorted(list(set(df.iloc[:, 0]).union(set(df.iloc[:, 1]))))
     wins = DataFrame(0, index=teams, columns=teams, dtype=float)
 
     # TODO vectorise
@@ -87,7 +87,7 @@ def make_venue_win_matrices(df: DataFrame) -> dict:
     Returns:
         dict: A dictionary of the win matrices, with keys `("home", "away", "neutral")`.
     """
-    teams = np.unique(df.iloc[:, 0:1].values.ravel())
+    teams = sorted(list(set(df.iloc[:, 0]).union(set(df.iloc[:, 1]))))
     wins = {
         "home": DataFrame(0, index=teams, columns=teams, dtype=float),
         "away": DataFrame(0, index=teams, columns=teams, dtype=float),

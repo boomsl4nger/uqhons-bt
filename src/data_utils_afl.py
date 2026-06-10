@@ -10,13 +10,6 @@ import pandas as pd
 from pandas import DataFrame
 from typing import List, Optional
 
-# TODO implement the following functions:
-# (!) Load data, given path to CSVs and perhaps optional start and end years
-# Verify all CSVs in a directory have the same required structure (just check for needed headers?)
-# Define list of home grounds, implement fn to determine if venue is neutral
-# TODO account for aliases for both teams and venues, account for new teams/venues/merges
-# TODO generalise the functions to not assume the Akareen dataset
-
 def check_csv_headers(path: str, expected_headers: Optional[List[str]] = None) -> bool:
     """
     Checks if all CSV files in a directory have a specific set of column names.
@@ -126,8 +119,8 @@ def get_unique_venues(path: str, start_year: int = None, end_year: int = None) -
 
 def load_data_afl(
         path: str, start_year: int = None, end_year: int = None, 
-        tenant_info: dict = None, aliases: dict = None, include_venue: bool = False,
-        print_missing_data: bool = False
+        tenants: DataFrame = None, aliases: dict = None, include_venue: bool = False,
+        nominal_home: bool = False, fix_swapped: bool = False, print_missing_data: bool = False
     ) -> DataFrame:
     # For each row in each csv, which represents a single match between two teams in a given season
     # (i) Determine which is the home team, or if the game is neutral
@@ -140,7 +133,18 @@ def load_data_afl(
         files_to_process = [f"matches_{year}.csv" for year in range(start_year, end_year + 1)]
     else:
         files_to_process = [f for f in os.listdir(directory) if f.startswith("matches_") and f.endswith(".csv")]
+
+    # Precompute team-specific venue DFs
+    if tenants is not None:
+        tenants_map = {team: df for team, df in tenants.groupby("team")}
+
+        def is_home_venue(team, venue, year):
+            if team not in tenants_map:
+                return False
             
+            df = tenants_map[team]
+            return ((df["venue"] == venue) & (df["start_year"] <= year) & (df["end_year"] >= year)).any()
+
     # Check all files against the determined standard
     result = []
     for filename in files_to_process:
@@ -170,15 +174,20 @@ def load_data_afl(
                 continue # Skip missing data
 
             # Determine if the game is neutral based on the venue and tenant info (if provided)
-            if tenant_info is not None and hteam in tenant_info and ateam in tenant_info:
-                i_home = venue in tenant_info[hteam].values()
-                j_home = venue in tenant_info[ateam].values()
-                is_neutral = int(i_home == j_home)
+            if tenants is not None:
+                i_home = is_home_venue(hteam, venue, cur_year)
+                j_home = is_home_venue(ateam, venue, cur_year)
+                if nominal_home:
+                    is_neutral = int(not i_home and not j_home)
+                else:
+                    is_neutral = int(i_home == j_home)
 
                 # Also check if the home and away teams are swapped
                 if not i_home and j_home:
-                    hteam, ateam = ateam, hteam
-                    hscore, ascore = ascore, hscore
+                    if print_missing_data: print(f"Swapped (?) : {[row["round_num"], venue, str(cur_year), hteam, ateam]}")
+                    if fix_swapped:
+                        hteam, ateam = ateam, hteam
+                        hscore, ascore = ascore, hscore
             else:
                 is_neutral = 0
 

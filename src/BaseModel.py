@@ -259,7 +259,7 @@ class BaseBradleyTerry():
             full_grad = self._score(expand(theta_active))
             return full_grad[active_mask]
         
-        # initial guess only for active params, TODO better initialisation
+        # initial guess only for active params, TODO better initialisation such as based on ladder pos
         x0 = np.zeros(active_mask.sum())
 
         result = minimize(
