@@ -1,13 +1,15 @@
-# Title
+# Hierarchical Bradley-Terry Models with Dynamic Abilities
 
 Project on Dynamic Hierarchical Bradley-Terry models for BMath(Hons) at UQ (2025-2026).
 
 This repository primarily contains code and demos related to the project itself.
+The key applications of the models was to analysing various home-ground advantage structures in the AFL and NRL.
+Jupyter notebook files used for the analyse are included.
+
 I hope to produce a Python package with the models and tools for use in general analysis.
+As such, certain aspects like external documentation, testing, and general polish are lacking at time of writing.
 
 ## Python
-
-### Requirements
 
 Python can be downloaded [here](https://www.python.org/downloads/).
 It is recommended to be working in a virtual environment.
@@ -28,6 +30,8 @@ After restarting VSCode, `env` appears as a virtual environment.
 pip install ipykernel
 ipython kernel install --user --name=env
 ```
+
+### Requirements
 
 To install the required dependencies (preferably in your venv), run the following command:
 
