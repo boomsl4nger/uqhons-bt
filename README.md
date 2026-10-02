@@ -4,7 +4,8 @@ Project on Dynamic Hierarchical Bradley-Terry models for BMath(Hons) at UQ (2025
 
 This repository primarily contains code and demos related to the project itself.
 The key applications of the models was to analysing various home-ground advantage structures in the AFL and NRL.
-Jupyter notebook files used for the analyse are included.
+See my [Honours Thesis](honours_thesis.pdf) for a comprehensive write-up of these findings (and more)!
+Jupyter notebook files used for the analyses are included in the [demos](demos) folder.
 
 I hope to produce a Python package with the models and tools for use in general analysis.
 As such, certain aspects like external documentation, testing, and general polish are lacking at time of writing.
